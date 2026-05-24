@@ -1,0 +1,221 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2") format("woff2");
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Premium Midnight Blue & Gold Palette */
+  --midnight-blue-deep: #0B1124;
+  --midnight-blue-card: #141F3C;
+  --metallic-gold: #D4AF37;
+  --metallic-gold-light: #F9F3D9;
+  --metallic-gold-dark: #9B7C2A;
+  --off-white: #F8FAFC;
+  --slate-gray: #8A98B0;
+
+  /* PREMIUM LIGHT MODE (DEFAULT) */
+  --background: #F8FAFC;
+  --foreground: #0E1629;
+
+  --card: #FFFFFF;
+  --card-foreground: #0E1629;
+
+  --popover: #FFFFFF;
+  --popover-foreground: #0E1629;
+
+  /* Premium Gold Primary */
+  --primary: #D4AF37;
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0E1629;
+
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+
+  --accent: #D4AF37;
+  --accent-foreground: #FFFFFF;
+
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: #FFFFFF;
+
+  --success: #C5A059;
+  --success-foreground: #FFFFFF;
+
+  --border: rgba(212, 175, 55, 0.2);
+  --input: rgba(212, 175, 55, 0.15);
+  --ring: #D4AF37;
+
+  /* Sidebar — Premium Midnight Blue sidebar with gold accents */
+  --sidebar: #0C162F;
+  --sidebar-foreground: #CBD5E1;
+  --sidebar-primary: #D4AF37;
+  --sidebar-primary-foreground: #0C162F;
+  --sidebar-accent: #1D2B4A;
+  --sidebar-accent-foreground: #F8FAFC;
+  --sidebar-border: rgba(212, 175, 55, 0.28);
+  --sidebar-ring: #D4AF37;
+
+  --gradient-primary: linear-gradient(135deg, #F9F3D9 0%, #D4AF37 50%, #9B7C2A 100%);
+  --shadow-luxury: 0 10px 35px -10px rgba(212, 175, 55, 0.06);
+
+  /* luxury style fallbacks mapped to light mode elements */
+  --midnight-navy: #FFFFFF;
+  --rose-copper: #D4AF37;
+  --crystal-teal: #C5A059;
+  --crystal-teal-deep: #9B7C2A;
+  --marble-white: #0E1629;
+}
+
+.dark {
+  /* Match dark mode with the premium deep midnight mode for a consistent identity */
+  --background: #0B1124;
+  --foreground: #F8FAFC;
+  --card: #141F3C;
+  --card-foreground: #F8FAFC;
+  --popover: #141F3C;
+  --popover-foreground: #F8FAFC;
+  --primary: #D4AF37;
+  --primary-foreground: #0B1124;
+  --secondary: #1E2D4A;
+  --secondary-foreground: #F8FAFC;
+  --muted: #1F3054;
+  --muted-foreground: #8A98B0;
+  --accent: #D4AF37;
+  --accent-foreground: #0B1124;
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: #F8FAFC;
+  --success: #D4AF37;
+  --success-foreground: #0B1124;
+  --border: rgba(212, 175, 55, 0.35);
+  --input: rgba(212, 175, 55, 0.28);
+  --ring: #D4AF37;
+
+  /* Sidebar — Midnight Blue & Gold accents */
+  --sidebar: #0C162F;
+  --sidebar-foreground: #CBD5E1;
+  --sidebar-primary: #D4AF37;
+  --sidebar-primary-foreground: #0C162F;
+  --sidebar-accent: #1D2B4A;
+  --sidebar-accent-foreground: #F8FAFC;
+  --sidebar-border: rgba(212, 175, 55, 0.28);
+  --sidebar-ring: #D4AF37;
+
+  --shadow-luxury: 0 10px 35px -10px rgba(212, 175, 55, 0.15);
+
+  /* luxury style fallbacks mapped to gold/midnight blue */
+  --midnight-navy: #141F3C;
+  --rose-copper: #D4AF37;
+  --crystal-teal: #D4AF37;
+  --crystal-teal-deep: #9B7C2A;
+  --marble-white: #F8FAFC;
+}
+
+/* Butter-smooth Theme Transitions */
+html, body, aside, main, header, section, .card-luxury, table, tr, th, td, button, input, select, textarea, span, p, h1, h2, h3 {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html, body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--color-foreground);
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .btn-process {
+    background-image: var(--gradient-primary);
+    color: var(--midnight-blue-deep);
+    font-weight: 600;
+    box-shadow: 0 8px 24px -10px rgba(212, 175, 55, 0.45);
+    transition: transform 150ms ease, box-shadow 200ms ease, filter 200ms ease;
+  }
+  .btn-process:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: 0 12px 30px -10px rgba(212, 175, 55, 0.6);
+    transform: translateY(-1px);
+  }
+  .text-teal { color: var(--primary); }
+  .border-copper { border-color: var(--primary); }
+  .card-luxury {
+    background-color: var(--card);
+    border: 1px solid rgba(212, 175, 55, 0.25);
+    box-shadow: var(--shadow-luxury);
+  }
+}
+
+/* Elegant Native Gold Cursor */
+html, body {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><path d='M0 0V18L4.8 13.2L9.6 22.8L12.4 21.4L7.6 11.8H14.8L0 0Z' fill='%23D4AF37' stroke='%230B1124' stroke-width='1.5' stroke-linejoin='round'/></svg>") 0 0, auto !important;
+}
+
+/* Elegant Native Gold Pointer for interactive elements */
+a, button, select, input, textarea, [role='button'], .cursor-pointer, tr.cursor-pointer, [type='button'], [type='submit'] {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><path d='M0 0V18L4.8 13.2L9.6 22.8L12.4 21.4L7.6 11.8H14.8L0 0Z' fill='%23D4AF37' stroke='%230B1124' stroke-width='1.5' stroke-linejoin='round'/></svg>") 0 0, pointer !important;
+}
+
+

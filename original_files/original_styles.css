@@ -1,0 +1,101 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2") format("woff2");
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var
+<truncated 2395 bytes>
+);
+  --primary-foreground: oklch(0.18 0.04 250);
+  --secondary: oklch(0.27 0.04 252);
+  --secondary-foreground: oklch(0.98 0.005 240);
+  --muted: oklch(0.27 0.04 252);
+  --muted-foreground: oklch(0.7 0.03 250);
+  --accent: oklch(0.3 0.05 252);
+  --accent-foreground: oklch(0.98 0.005 240);
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0.005 240);
+  --success: oklch(0.7 0.16 155);
+  --success-foreground: oklch(0.15 0.03 250);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.75 0.13 230);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html, body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--midnight-navy);
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .btn-process {
+    background-image: var(--gradient-primary);
+    color: var(--midnight-navy);
+    font-weight: 600;
+    box-shadow: 0 8px 24px -10px rgba(72, 207, 203, 0.55);
+    transition: transform 150ms ease, box-shadow 200ms ease, filter 200ms ease;
+  }
+  .btn-process:hover:not(:disabled) {
+    filter: brightness(1.04);
+    box-shadow: 0 12px 30px -10px rgba(72, 207, 203, 0.7);
+    transform: translateY(-1px);
+  }
+  .text-teal { color: var(--crystal-teal); }
+  .border-copper { border-color: var(--rose-copper); }
+  .card-luxury {
+    background-color: var(--marble-white);
+    border: 1px solid rgba(180, 132, 108, 0.5);
+    box-shadow: var(--shadow-luxury);
+  }
+}

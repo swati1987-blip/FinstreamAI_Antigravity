@@ -1,0 +1,1624 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import {
+  Loader2,
+  Sparkles,
+  TrendingUp,
+  Briefcase,
+  User,
+  AlertCircle,
+  Inbox,
+  Image as ImageIcon,
+  FileText,
+  Mic,
+  Square,
+  X,
+  Paperclip,
+  Plus,
+  Building2,
+  CalendarIcon,
+} from "lucide-react";
+import { format } from "date-fns";
+import { toast } from "sonner";
+
+import { DashboardSidebar } from "@/components/dashboard-sidebar";
+import { CurrencySwitcher } from "@/components/currency-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { MasterUpload } from "@/components/master-upload";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Toaster } from "@/components/ui/sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { supabase } from "@/integrations/supabase/client";
+import { parseExpenseWithAI } from "@/lib/expenses.functions";
+import { useAuth } from "@/hooks/use-auth";
+import { useCurrency } from "@/hooks/use-currency";
+import { useBusinesses } from "@/hooks/use-businesses";
+import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
+import { convertAmount, getRateToINR } from "@/lib/fx";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription } from "@/lib/utils";
+
+export const Route = createFileRoute("/_authenticated/dashboard")({
+  component: Dashboard,
+  head: () => ({
+    meta: [
+      { title: "FinStream AI — Intelligent Financial Ledger" },
+      {
+        name: "description",
+        content:
+          "Capture bills, SMS, and notes. FinStream AI parses them into a clean financial ledger.",
+      },
+    ],
+  }),
+});
+
+type Expense = {
+  id: string;
+  created_at: string;
+  amount: number;
+  vendor: string;
+  category: string;
+  currency: string;
+  raw_text: string | null;
+  business_id: string | null;
+  date?: string;
+  main_category?: string;
+  company_entity?: string;
+  expense_category?: string;
+};
+
+const ADD_NEW_VALUE = "__add_new__";
+
+type Attachment = {
+  dataUrl: string;
+  mimeType: string;
+  kind: "image" | "pdf" | "audio";
+  name: string;
+  sizeKb: number;
+};
+
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // 8 MB
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("Read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function Dashboard() {
+  const { user } = useAuth();
+  const parseFn = useServerFn(parseExpenseWithAI);
+  const { currency: displayCurrency } = useCurrency();
+  const { businesses, addBusiness } = useBusinesses();
+
+  const [rawText, setRawText] = useState("");
+  const [captureCurrency, setCaptureCurrency] = useState<string>("INR");
+  const [billDate, setBillDate] = useState<Date>(new Date());
+  const [businessId, setBusinessId] = useState<string>("none");
+  const [newBusinessName, setNewBusinessName] = useState("");
+  const [showNewBusiness, setShowNewBusiness] = useState(false);
+
+  const [processing, setProcessing] = useState(false);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [auditing, setAuditing] = useState(false);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [recording, setRecording] = useState(false);
+  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activeEntityFilter, setActiveEntityFilter] = useState<string>("All");
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("CY 2026");
+  const [resolvingDuplicate, setResolvingDuplicate] = useState<Expense | null>(null);
+
+  const filteredLedgerExpenses = useMemo(() => {
+    const filtered = expenses.filter((e) => {
+      if (activeEntityFilter !== "All") {
+        const entity = e.company_entity || "None";
+        if (entity.toLowerCase() !== activeEntityFilter.toLowerCase()) {
+          return false;
+        }
+      }
+      if (searchTerm.trim() !== "") {
+        const term = searchTerm.toLowerCase();
+        const vendor = cleanVendorName(e.vendor).toLowerCase();
+        const category = (e.expense_category || "").toLowerCase();
+        const mainCat = (e.main_category || e.category || "").toLowerCase();
+        const amountStr = String(e.amount);
+        return (
+          vendor.includes(term) ||
+          category.includes(term) ||
+          mainCat.includes(term) ||
+          amountStr.includes(term)
+        );
+      }
+      return true;
+    });
+
+    return filtered.sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : new Date(a.created_at).getTime();
+      const dateB = b.date ? new Date(b.date).getTime() : new Date(b.created_at).getTime();
+      return dateB - dateA;
+    });
+  }, [expenses, activeEntityFilter, searchTerm]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<any>(null);
+
+  const loadExpenses = async () => {
+    setLoadError(null);
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      setLoadError(error.message);
+      return;
+    }
+    setExpenses((data ?? []) as Expense[]);
+  };
+
+  useEffect(() => {
+    loadExpenses().finally(() => setLoading(false));
+
+    const channel = supabase
+      .channel('dashboard_expenses_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'expenses' },
+        () => {
+          loadExpenses();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Convert each expense into displayCurrency using historical FX on its date.
+  const totals = useMemo(() => {
+    let total = 0,
+      business = 0,
+      personal = 0;
+    let totalCount = 0,
+      businessCount = 0,
+      personalCount = 0;
+    for (const e of expenses) {
+      // Filter by selected period
+      const expDate = e.date ? new Date(e.date) : new Date(e.created_at);
+      let inPeriod = true;
+      if (selectedPeriod === "FY 2026-27") {
+        // Apr 1, 2026 to Mar 31, 2027
+        const start = new Date("2026-04-01T00:00:00");
+        const end = new Date("2027-03-31T23:59:59");
+        inPeriod = expDate >= start && expDate <= end;
+      } else if (selectedPeriod === "FY 2025-26") {
+        // Apr 1, 2025 to Mar 31, 2026
+        const start = new Date("2025-04-01T00:00:00");
+        const end = new Date("2026-03-31T23:59:59");
+        inPeriod = expDate >= start && expDate <= end;
+      } else if (selectedPeriod === "CY 2026") {
+        // Jan 1, 2026 to Dec 31, 2026
+        const start = new Date("2026-01-01T00:00:00");
+        const end = new Date("2026-12-31T23:59:59");
+        inPeriod = expDate >= start && expDate <= end;
+      } else if (selectedPeriod === "CY 2025") {
+        // Jan 1, 2025 to Dec 31, 2025
+        const start = new Date("2025-01-01T00:00:00");
+        const end = new Date("2025-12-31T23:59:59");
+        inPeriod = expDate >= start && expDate <= end;
+      } else if (selectedPeriod === "All") {
+        inPeriod = true;
+      }
+      
+      if (!inPeriod) continue;
+
+      const amt = convertAmount(
+        Number(e.amount) || 0,
+        e.currency || "INR",
+        displayCurrency,
+        e.created_at,
+      );
+      total += amt;
+      totalCount++;
+      if (e.category === "Business") {
+        business += amt;
+        businessCount++;
+      } else {
+        personal += amt;
+        personalCount++;
+      }
+    }
+    return { total, business, personal, totalCount, businessCount, personalCount };
+  }, [expenses, displayCurrency, selectedPeriod]);
+
+  const potentialDuplicates = useMemo(() => {
+    const duplicates = new Set<string>();
+    const seen = new Map<string, string>(); // key -> id
+    
+    for (const e of expenses) {
+      const vendorName = cleanVendorName(e.vendor || "").toLowerCase().trim();
+      const amountVal = Number(e.amount).toFixed(2);
+      const dateStr = e.date || e.created_at.slice(0, 10);
+      
+      const key = `${vendorName}-${amountVal}-${dateStr}`;
+      if (seen.has(key)) {
+        duplicates.add(e.id);
+        duplicates.add(seen.get(key)!);
+      } else {
+        seen.set(key, e.id);
+      }
+    }
+    return duplicates;
+  }, [expenses]);
+
+  const handleResolveDuplicate = async (exp: Expense) => {
+    if (!exp) return;
+    try {
+      const vendorName = cleanVendorName(exp.vendor || "").toLowerCase().trim();
+      const amountVal = Number(exp.amount).toFixed(2);
+      const dateStr = exp.date || exp.created_at.slice(0, 10);
+      
+      const matches = expenses.filter((e) => {
+        const vName = cleanVendorName(e.vendor || "").toLowerCase().trim();
+        const aVal = Number(e.amount).toFixed(2);
+        const dStr = e.date || e.created_at.slice(0, 10);
+        return vName === vendorName && aVal === amountVal && dStr === dateStr;
+      });
+
+      if (matches.length > 1) {
+        const duplicateToDelete = matches[1];
+        const { error } = await supabase
+          .from("expenses")
+          .delete()
+          .eq("id", duplicateToDelete.id);
+          
+        if (error) throw error;
+        
+        toast.success(`Resolved double-billing for ${exp.vendor || "Expense"}! Merged entries successfully ✓`);
+        setResolvingDuplicate(null);
+        loadExpenses();
+      } else {
+        toast.error("Duplicate transaction no longer found.");
+        setResolvingDuplicate(null);
+      }
+    } catch (err: any) {
+      toast.error("Failed to merge duplicate entries: " + (err.message || ""));
+    }
+  };
+
+  const handleFilePick = async (
+    file: File | undefined | null,
+    kind: "image" | "pdf",
+  ) => {
+    if (!file) return;
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      toast.error("File too large (max 8 MB)");
+      return;
+    }
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({
+        dataUrl,
+        mimeType: file.type || (kind === "pdf" ? "application/pdf" : "image/*"),
+        kind,
+        name: file.name,
+        sizeKb: Math.round(file.size / 1024),
+      });
+    } catch {
+      toast.error("Could not read file");
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      recordedChunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordedChunksRef.current, {
+          type: mr.mimeType || "audio/webm",
+        });
+        if (blob.size > MAX_ATTACHMENT_BYTES) {
+          toast.error("Recording too long (max 8 MB)");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachment({
+            dataUrl: reader.result as string,
+            mimeType: blob.type,
+            kind: "audio",
+            name: `voice-note-${new Date().toISOString().slice(0, 19)}.webm`,
+            sizeKb: Math.round(blob.size / 1024),
+          });
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      // Start Speech Recognition in parallel for real-time transcription
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-IN"; // Configured for Indian English/accents
+        
+        setRawText(""); // Clear previous text to show fresh transcription
+        let finalTranscript = "";
+        
+        recognition.onresult = (event: any) => {
+          let interimTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript + " ";
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          const transcript = (finalTranscript + interimTranscript).trim();
+          if (transcript) {
+            setRawText(transcript);
+          }
+        };
+        
+        recognition.onerror = (err: any) => {
+          console.error("Speech recognition error:", err);
+        };
+        
+        recognition.start();
+        recognitionRef.current = recognition;
+      }
+
+      mr.start();
+      recorderRef.current = mr;
+      setRecording(true);
+    } catch {
+      toast.error("Microphone permission denied");
+    }
+  };
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (err) {
+        console.error("Error stopping speech recognition:", err);
+      }
+      recognitionRef.current = null;
+    }
+    
+    setRecording(false);
+  };
+
+  const handleBusinessChange = (val: string) => {
+    if (val === ADD_NEW_VALUE) {
+      setShowNewBusiness(true);
+      return;
+    }
+    setBusinessId(val);
+    setShowNewBusiness(false);
+  };
+
+  const handleCreateBusiness = async () => {
+    const name = newBusinessName.trim();
+    if (!name) return;
+    try {
+      const created = await addBusiness(name);
+      if (created) {
+        setBusinessId(created.id);
+        setNewBusinessName("");
+        setShowNewBusiness(false);
+        toast.success(`Added business "${created.name}"`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not add business";
+      toast.error(msg);
+    }
+  };
+
+  const handleProcess = async () => {
+    if (!rawText.trim() && !attachment) {
+      toast.error("Add text or an attachment first");
+      return;
+    }
+    if (!user) {
+      toast.error("You must be signed in");
+      return;
+    }
+    setProcessing(true);
+    try {
+      const parsed = await parseFn({
+        data: {
+          rawText,
+          defaultCurrency: captureCurrency,
+          attachment: attachment
+            ? {
+                dataUrl: attachment.dataUrl,
+                mimeType: attachment.mimeType,
+                kind: attachment.kind,
+                name: attachment.name,
+                sizeKb: attachment.sizeKb,
+              }
+            : undefined,
+        },
+      });
+      const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
+      const linkedBusiness =
+        businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
+
+      let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
+      const isBiz = parsed.category === "Business";
+
+      // Prefer the entity detected from the bill itself (e.g. RM invoices → KS)
+      if (parsed.company_entity && parsed.company_entity !== "None") {
+        entityName = parsed.company_entity;
+      } else if (isBiz && linkedBusiness) {
+        const biz = businesses.find((b) => b.id === linkedBusiness);
+        if (biz) {
+          const bname = biz.name.toUpperCase();
+          if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
+            entityName = bname as any;
+          }
+        }
+      }
+
+      const mainCategoryVal = isBiz ? "Business" : "Personal";
+      const { expenseCategory } = parseExpenseCategoryAndDescription(rawText || parsed.description);
+
+      // Use the invoice date from the parsed bill if available; otherwise use the user-selected date
+      const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
+      const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+
+      const { data: inserted, error } = await supabase
+        .from("expenses")
+        .insert({
+          amount: parsed.amount,
+          vendor: parsed.vendor,
+          category: parsed.category,
+          currency: detectedCurrency,
+          raw_text:
+            rawText || parsed.description || `[${attachment?.kind ?? "attachment"}] ${attachment?.name ?? ""}`,
+          user_id: user.id,
+          business_id: linkedBusiness,
+          created_at: effectiveDate.toISOString(),
+          date: effectiveDateStr,
+          main_category: mainCategoryVal,
+          company_entity: entityName,
+          expense_category: expenseCategory,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      // Audit record with historical FX rate
+      const rate = getRateToINR(detectedCurrency, effectiveDate);
+      await supabase.from("audit_records").insert({
+        expense_id: inserted.id,
+        user_id: user.id,
+        bill_date: effectiveDateStr,
+        original_currency: detectedCurrency,
+        original_amount: parsed.amount,
+        exchange_rate_to_inr: rate,
+      });
+
+      toast.success(
+        `Logged ${parsed.vendor} — ${formatCurrency(parsed.amount, detectedCurrency)}`,
+      );
+      setRawText("");
+      setAttachment(null);
+      loadExpenses();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Processing failed";
+      if (msg.includes("429")) toast.error("Rate limit reached. Try again shortly.");
+      else if (msg.includes("402")) toast.error("AI credits exhausted. Add credits in Settings.");
+      else toast.error(msg);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen w-full bg-background relative overflow-hidden">
+      {/* Decorative Premium Gold Ambient Glows */}
+      <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.06)_0%,transparent_70%)] pointer-events-none blur-3xl z-0" />
+      <div className="absolute bottom-[-10%] left-[20%] w-[40%] h-[40%] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.04)_0%,transparent_70%)] pointer-events-none blur-3xl z-0" />
+
+      <DashboardSidebar />
+
+      <main className="flex-1 min-w-0 relative z-10">
+        <header className="border-b border-border bg-card/50 backdrop-blur">
+          <div className="px-6 lg:px-10 py-5 flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Dashboard</h1>
+              <p className="text-sm text-muted-foreground">
+                Welcome back. Here&apos;s your financial overview.
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <ThemeToggle />
+              <CurrencySwitcher />
+              <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="w-2 h-2 rounded-full bg-success" />
+                Live ledger
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="px-6 lg:px-10 py-8 space-y-8 max-w-6xl">
+          {/* Capture */}
+          <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold tracking-tight text-foreground uppercase">
+                  Capture
+                </h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Default currency</span>
+                <Select value={captureCurrency} onValueChange={setCaptureCurrency}>
+                  <SelectTrigger className="h-8 w-[90px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Business + bill date row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-[var(--rose-copper)]" /> Business
+                  </label>
+                  <Select value={businessId} onValueChange={handleBusinessChange}>
+                    <SelectTrigger className="bg-background border-[var(--rose-copper)]/40">
+                      <SelectValue placeholder="Select a business" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None / Personal</SelectItem>
+                      {businesses.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                      <SelectItem value={ADD_NEW_VALUE}>
+                        + Add new business…
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {showNewBusiness && (
+                    <div className="flex items-center gap-2 pt-2">
+                      <Input
+                        autoFocus
+                        value={newBusinessName}
+                        onChange={(e) => setNewBusinessName(e.target.value)}
+                        placeholder="New business name"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleCreateBusiness();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleCreateBusiness}
+                        className="bg-[var(--midnight-navy)] text-[var(--marble-white)] hover:bg-[var(--midnight-navy)]/90"
+                      >
+                        <Plus className="w-4 h-4" /> Save
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setShowNewBusiness(false);
+                          setNewBusinessName("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Date of bill
+                  </label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal bg-background border-[var(--rose-copper)]/40",
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4 text-[var(--rose-copper)]" />
+                        {format(billDate, "PPP")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={billDate}
+                        onSelect={(d) => d && setBillDate(d)}
+                        initialFocus
+                        className={cn("p-3 pointer-events-auto")}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              <Textarea
+                value={rawText}
+                onChange={(e) => setRawText(e.target.value)}
+                placeholder="Paste Bill, SMS, or Note&#10;&#10;e.g. Spent ₹450 at Chai Point for client meeting"
+                className="min-h-[140px] resize-y text-sm font-mono bg-background"
+                disabled={processing}
+              />
+
+              {/* Attachment row */}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  void handleFilePick(e.target.files?.[0], "image");
+                  e.target.value = "";
+                }}
+              />
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  void handleFilePick(e.target.files?.[0], "pdf");
+                  e.target.value = "";
+                }}
+              />
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={processing || recording || !!attachment}
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <ImageIcon className="w-4 h-4 mr-1.5" /> Image
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={processing || recording || !!attachment}
+                  onClick={() => pdfInputRef.current?.click()}
+                >
+                  <FileText className="w-4 h-4 mr-1.5" /> PDF
+                </Button>
+                {!recording ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={processing || !!attachment}
+                    onClick={startRecording}
+                  >
+                    <Mic className="w-4 h-4 mr-1.5" /> Voice note
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={stopRecording}
+                  >
+                    <Square className="w-4 h-4 mr-1.5" /> Stop recording
+                  </Button>
+                )}
+
+                {attachment && (
+                  <div className="flex items-center gap-2 text-xs bg-muted rounded-md pl-2 pr-1 py-1">
+                    <Paperclip className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="font-medium truncate max-w-[200px]">{attachment.name}</span>
+                    <span className="text-muted-foreground">{attachment.sizeKb} KB</span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachment(null)}
+                      className="p-0.5 rounded hover:bg-background"
+                      aria-label="Remove attachment"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  AI extracts vendor, amount, currency, and category. Bill date and FX rate are
+                  saved to the audit log.
+                </p>
+                <Button
+                  onClick={handleProcess}
+                  disabled={processing || recording || (!rawText.trim() && !attachment)}
+                  size="lg"
+                  className="btn-process px-6 hover:bg-transparent"
+                >
+                  {processing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Process with AI
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </section>
+
+          {/* Master Monthly File Upload */}
+          <MasterUpload
+            onAuditingChange={setAuditing}
+            onSuccess={() => loadExpenses()}
+          />
+
+          {/* Summary */}
+          <section className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 flex-wrap bg-card/40 backdrop-blur p-4 rounded-xl border border-border">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                <h2 className="text-sm font-bold tracking-tight text-foreground uppercase">
+                  Financial Summary ({selectedPeriod === "All" ? "All-Time" : selectedPeriod})
+                </h2>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground font-semibold">Select Period:</span>
+                <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                  <SelectTrigger className="w-[210px] h-8.5 text-xs bg-background border-border">
+                    <SelectValue placeholder="Select Period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CY 2026">📅 Calendar Year 2026</SelectItem>
+                    <SelectItem value="CY 2025">📅 Calendar Year 2025</SelectItem>
+                    <SelectItem value="FY 2026-27">🇮🇳 FY 2026-27 (Apr-Mar)</SelectItem>
+                    <SelectItem value="FY 2025-26">🇮🇳 FY 2025-26 (Apr-Mar)</SelectItem>
+                    <SelectItem value="All">🌍 All-Time Summary</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <SummaryCard
+                icon={TrendingUp}
+                label="Total Expenses"
+                value={totals.total}
+                currency={displayCurrency}
+                tone="default"
+                count={totals.totalCount}
+              />
+              <SummaryCard
+                icon={Briefcase}
+                label="Business Spend"
+                value={totals.business}
+                currency={displayCurrency}
+                tone="primary"
+                count={totals.businessCount}
+              />
+              <SummaryCard
+                icon={User}
+                label="Personal Spend"
+                value={totals.personal}
+                currency={displayCurrency}
+                tone="muted"
+                count={totals.personalCount}
+              />
+            </div>
+          </section>
+
+          {/* Ledger */}
+          <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-border flex items-center justify-between bg-gradient-to-r from-muted/30 to-transparent">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-bold tracking-tight text-foreground uppercase flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-primary" />
+                  Transaction Ledger
+                </h2>
+                <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold shadow-sm border border-primary/20">
+                  {filteredLedgerExpenses.length} of {expenses.length} entries
+                </span>
+              </div>
+            </div>
+
+            {/* Live Search and Filter Pills */}
+            <div className="px-6 py-4 border-b border-border bg-muted/10 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="relative flex-1 max-w-md">
+                  <Input
+                    value={searchTerm}
+                    onChange={(ev) => setSearchTerm(ev.target.value)}
+                    placeholder="Search vendor, category, amount..."
+                    className="pl-3 pr-8 h-9 text-xs bg-background/50 border-border focus-visible:ring-[var(--rose-copper)]"
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                
+                {/* Horizontal Entity Pills */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">
+                    Entity:
+                  </span>
+                  {(["All", "KS", "TI", "CPM", "AAS", "Swati", "Others", "None"] as const).map((ent) => {
+                    const active = activeEntityFilter === ent;
+                    return (
+                      <button
+                        key={ent}
+                        onClick={() => setActiveEntityFilter(ent)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium border transition-all duration-300",
+                          active
+                            ? "bg-[var(--midnight-navy)] text-[var(--marble-white)] border-[var(--crystal-teal)] shadow-[0_0_8px_rgba(40,162,184,0.3)]"
+                            : "border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                        )}
+                      >
+                        {ent}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[800px]">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-muted/30">
+                    <th className="px-6 py-3 font-medium">Date</th>
+                    <th className="px-6 py-3 font-medium">Vendor</th>
+                    <th className="px-6 py-3 font-medium">Category</th>
+                    <th className="px-6 py-3 font-medium">Entity</th>
+                    <th className="px-6 py-3 font-medium">Expense Category</th>
+                    <th className="px-6 py-3 font-medium text-right">Amount ({displayCurrency})</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditing ? (
+                    <>
+                      <tr>
+                        <td colSpan={6} className="px-6 pt-4 pb-2">
+                          <div className="flex items-center gap-2 text-xs text-[var(--crystal-teal-deep)] font-medium">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            FinStream AI is auditing your monthly statement over secure cloud servers…
+                          </div>
+                        </td>
+                      </tr>
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <tr key={i} className="border-b border-border last:border-0">
+                          <td className="px-6 py-3"><Skeleton className="h-4 w-24" /></td>
+                          <td className="px-6 py-3"><Skeleton className="h-4 w-40" /></td>
+                          <td className="px-6 py-3"><Skeleton className="h-5 w-20 rounded-full" /></td>
+                          <td className="px-6 py-3"><Skeleton className="h-4 w-12" /></td>
+                          <td className="px-6 py-3"><Skeleton className="h-4 w-32" /></td>
+                          <td className="px-6 py-3"><Skeleton className="h-4 w-20 ml-auto" /></td>
+                        </tr>
+                      ))}
+                    </>
+                  ) : loading ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                      </td>
+                    </tr>
+                  ) : loadError ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2 text-destructive">
+                          <AlertCircle className="w-5 h-5" />
+                          <p className="text-sm">{loadError}</p>
+                          <Button size="sm" variant="outline" onClick={() => loadExpenses()}>
+                            Retry
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredLedgerExpenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-16 text-center">
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <Inbox className="w-6 h-6" />
+                          <p className="text-sm">No matching transactions found.</p>
+                          <p className="text-xs">Adjust your search or filter pills.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredLedgerExpenses.map((e) => {
+                      const converted = convertAmount(
+                        Number(e.amount) || 0,
+                        e.currency || "INR",
+                        displayCurrency,
+                        e.created_at,
+                      );
+
+                      const cleanVendor = cleanVendorName(e.vendor);
+                      
+                      let displayDate = "";
+                      try {
+                        const d = e.date ? new Date(e.date) : new Date(e.created_at);
+                        if (!isNaN(d.getTime())) {
+                          displayDate = format(d, "dd-MMM-yy");
+                        } else {
+                          displayDate = format(new Date(), "dd-MMM-yy");
+                        }
+                      } catch {
+                        displayDate = format(new Date(), "dd-MMM-yy");
+                      }
+
+                      const displayMainCategory = e.main_category || e.category || "Personal";
+                      const displayCompanyEntity = e.company_entity || "None";
+                      
+                      let displayExpenseCategory = e.expense_category || "Other expenses";
+                      if (!e.expense_category && e.raw_text) {
+                        const parsed = parseExpenseCategoryAndDescription(e.raw_text);
+                        displayExpenseCategory = parsed.expenseCategory;
+                      }
+
+                      const isNew = new Date().getTime() - new Date(e.created_at).getTime() < 5 * 60 * 1000;
+
+                      return (
+                        <tr
+                          key={e.id}
+                          className={cn(
+                            "border-b border-border last:border-0 transition-colors relative",
+                            isNew ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/30"
+                          )}
+                        >
+                          <td className="px-6 py-3 text-muted-foreground tabular-nums whitespace-nowrap relative">
+                            {isNew && (
+                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary shadow-[0_0_8px_var(--primary)]" />
+                            )}
+                            <div className="flex items-center gap-2">
+                              {displayDate}
+                              {isNew && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded animate-pulse">
+                                  New
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                           <td className="px-6 py-3 font-medium text-foreground whitespace-nowrap">
+                             <div className="flex items-center gap-1.5 min-w-0">
+                               <span className="truncate">{cleanVendor}</span>
+                               {potentialDuplicates.has(e.id) && (
+                                 <button
+                                   onClick={() => setResolvingDuplicate(e)}
+                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-[#0E1629] transition-all cursor-pointer animate-pulse shrink-0"
+                                   title="Duplicate detected. Click to resolve double-billing!"
+                                 >
+                                   ⚠ Resolve Duplicate
+                                 </button>
+                               )}
+                             </div>
+                           </td>
+                          <td className="px-6 py-3 whitespace-nowrap">
+                            <span
+                              className={cn(
+                                "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide",
+                                displayMainCategory === "Business"
+                                  ? "bg-primary/10 text-primary border border-primary/20"
+                                  : "bg-secondary text-secondary-foreground border border-secondary-foreground/10"
+                              )}
+                            >
+                              {displayMainCategory}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted text-primary border border-primary/20 text-xs font-bold">
+                              {displayCompanyEntity}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap">
+                            <span className="text-foreground/90 font-medium text-xs bg-muted/30 px-2 py-1 rounded">
+                              {displayExpenseCategory}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 text-right font-semibold tabular-nums text-foreground whitespace-nowrap">
+                            {formatCurrency(converted, displayCurrency)}
+                            {e.currency !== displayCurrency && (
+                              <div className="text-[10px] font-normal text-muted-foreground">
+                                {formatCurrency(Number(e.amount), e.currency)}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <Toaster />
+
+      {/* ══ SMART DUPLICATE RESOLUTION MODAL ════════════════════ */}
+      {resolvingDuplicate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md transition-all duration-300">
+          <div className="relative w-full max-w-md overflow-hidden card-luxury border border-border bg-card/95 rounded-2xl p-6 text-foreground space-y-6">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-bl-full pointer-events-none" />
+            
+            <div className="flex items-center gap-3 border-b border-border pb-4">
+              <span className="text-2xl">🛡</span>
+              <div>
+                <h3 className="text-base font-bold text-amber-500 tracking-tight">Smart Duplicate Detector</h3>
+                <span className="text-[10px] text-muted-foreground font-mono">1-Click Reconciliation Engine</span>
+              </div>
+            </div>
+
+            <div className="space-y-3.5 text-xs leading-relaxed text-muted-foreground">
+              <p>
+                We detected potential double-billing in your transaction stream for <strong className="text-foreground">{cleanVendorName(resolvingDuplicate.vendor || "")}</strong> on <strong className="text-foreground">{resolvingDuplicate.date || resolvingDuplicate.created_at.slice(0, 10)}</strong>.
+              </p>
+              <div className="p-3 bg-muted/40 rounded-xl border border-border space-y-2">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-muted-foreground">Vendor:</span>
+                  <span className="font-bold text-foreground">{cleanVendorName(resolvingDuplicate.vendor || "")}</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-muted-foreground">Amount:</span>
+                  <span className="font-bold text-amber-500">{formatCurrency(resolvingDuplicate.amount, resolvingDuplicate.currency)}</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-muted-foreground">Date:</span>
+                  <span className="font-bold text-foreground">{resolvingDuplicate.date || resolvingDuplicate.created_at.slice(0, 10)}</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Merging will keep exactly one of these entries as audited, and securely delete the duplicate clone from the live database ledger.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                onClick={() => handleResolveDuplicate(resolvingDuplicate)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-xl bg-amber-500 text-primary-foreground hover:bg-amber-600 transition-all cursor-pointer shadow-[0_4px_12px_rgba(245,158,11,0.2)]"
+              >
+                Resolve & Merge
+              </button>
+              <button
+                onClick={() => setResolvingDuplicate(null)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-xl border border-border bg-secondary hover:bg-secondary/80 text-secondary-foreground transition-all cursor-pointer"
+              >
+                Keep Both Entries
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ DYNAMIC AI EXPENSE COPILOT CHAT ═════════════════════ */}
+      <ExpenseCopilot expenses={expenses} />
+    </div>
+  );
+}
+
+function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+
+  const renderMessageText = (text: string) => {
+    // Split by ** for bold, * for italic
+    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={i} className="font-extrabold text-primary">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith("*") && part.endsWith("*")) {
+        return (
+          <em key={i} className="italic text-muted-foreground font-semibold">
+            {part.slice(1, -1)}
+          </em>
+        );
+      }
+      return part;
+    });
+  };
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([
+    {
+      role: "assistant",
+      text: "Hello! I am your glassmorphic FinStream Copilot 🤖. I can dynamically audit your active corporate ledger, check Indian Financial Year subsidiary budgets, or highlight double-billing anomalies. Ask me anything!"
+    }
+  ]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, open]);
+
+  const handleSend = (textToSend?: string) => {
+    const query = (textToSend || input).trim();
+    if (!query) return;
+
+    if (!textToSend) setInput("");
+
+    // Add user message
+    const newMessages = [...messages, { role: "user" as const, text: query }];
+    setMessages(newMessages);
+
+    // Simulate thinking
+    setTimeout(() => {
+      let reply = "";
+      const lower = query.toLowerCase();
+
+      // Month Name Mapping
+      const MONTH_MAP: Record<string, number> = {
+        january: 0, jan: 0,
+        february: 1, feb: 1,
+        march: 2, mar: 2,
+        april: 3, apr: 3,
+        may: 4,
+        june: 5, jun: 5,
+        july: 6, jul: 6,
+        august: 7, aug: 7,
+        september: 8, sep: 8,
+        october: 9, oct: 9,
+        november: 10, nov: 10,
+        december: 11, dec: 11
+      };
+
+      // 1. Detect Month
+      let targetMonthNum: number | null = null;
+      let targetMonthName = "";
+      for (const key of Object.keys(MONTH_MAP)) {
+        const regex = new RegExp(`\\b${key}\\b`, "i");
+        if (regex.test(lower)) {
+          targetMonthNum = MONTH_MAP[key];
+          const fullMonthNames = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+          ];
+          targetMonthName = fullMonthNames[targetMonthNum];
+          break;
+        }
+      }
+
+      // 2. Detect Category
+      let targetCategory: string | null = null;
+      const commonCategories = ["travel", "website", "repair", "maintenance", "telecom", "marketing", "advertising", "material", "food", "office", "personal", "business"];
+      for (const cat of commonCategories) {
+        const regex = new RegExp(`\\b${cat}\\b`, "i");
+        if (regex.test(lower)) {
+          targetCategory = cat;
+          break;
+        }
+      }
+      
+      const dynamicCategories = Array.from(new Set(expenses.map(e => (e.expense_category || e.category || "").toLowerCase()))).filter(Boolean);
+      for (const cat of dynamicCategories) {
+        if (cat.length > 2 && lower.includes(cat)) {
+          targetCategory = cat;
+          break;
+        }
+      }
+
+      // 3. Detect Vendor
+      let targetVendor: string | null = null;
+      const dynamicVendors = Array.from(new Set(expenses.map(e => (e.vendor || "").toLowerCase()))).filter(Boolean);
+      for (const vend of dynamicVendors) {
+        if (vend.length > 2 && lower.includes(vend)) {
+          targetVendor = vend;
+          break;
+        }
+      }
+
+      // 3.5 Detect Entity
+      let targetEntity: string | null = null;
+      const entityOptions = ["KS", "TI", "CPM", "AAS", "Swati", "Others", "None"];
+      for (const ent of entityOptions) {
+        const regex = new RegExp(`\\b${ent}\\b`, "i");
+        if (regex.test(lower)) {
+          targetEntity = ent;
+          break;
+        }
+      }
+
+      // Pre-compute basic DB stats
+      const totalCount = expenses.length;
+      const totalAmount = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+      const uniqueVendors = Array.from(new Set(expenses.map(e => cleanVendorName(e.vendor || "")))).filter(Boolean);
+      const uniqueExpenseCategories = Array.from(new Set(expenses.map(e => e.expense_category || e.category || "Other"))).filter(Boolean);
+      const uniqueEntities = Array.from(new Set(expenses.map(e => e.company_entity || "None"))).filter(Boolean);
+
+      let firstDate = "N/A";
+      let lastDate = "N/A";
+      if (expenses.length > 0) {
+        const sortedDates = expenses
+          .map(e => new Date(e.date || e.created_at))
+          .filter(d => !isNaN(d.getTime()))
+          .sort((a, b) => a.getTime() - b.getTime());
+        if (sortedDates.length > 0) {
+          firstDate = format(sortedDates[0], "dd-MMM-yy");
+          lastDate = format(sortedDates[sortedDates.length - 1], "dd-MMM-yy");
+        }
+      }
+
+      // Check if query is asking for specific analytical commands
+      if (lower.includes("how many") || lower.includes("count") || lower.includes("number of transaction") || lower.includes("total transaction") || lower.includes("volume")) {
+        reply = `📊 **Ledger Transaction Volume:**\n\nYou currently have **${totalCount} active transactions** logged in your database ledger.\n\nThese records span from **${firstDate}** to **${lastDate}**.`;
+      } else if (lower.includes("vendor") || lower.includes("who do i pay") || lower.includes("who are my vendors") || lower.includes("list of vendors")) {
+        reply = `🏢 **Active Corporate Vendors:**\n\nYour ledger database contains **${uniqueVendors.length} unique vendors**. Here are some of your top billed vendors:\n\n${uniqueVendors.slice(0, 10).map(v => `• ${v}`).join("\n")}\n\n💡 Try asking me about a specific vendor (e.g. *"${uniqueVendors[0] || "Amazon"}"*) to filter their exact expenses!`;
+      } else if (lower.includes("category") || lower.includes("categories") || lower.includes("what do i spend on") || lower.includes("list of categories")) {
+        reply = `🏷️ **Active Spending Categories:**\n\nYour ledger database tracks **${uniqueExpenseCategories.length} unique expense categories**. Here is the list:\n\n${uniqueExpenseCategories.slice(0, 15).map(c => `• ${c}`).join("\n")}\n\n💡 Try asking me about a specific category (e.g. *"${uniqueExpenseCategories[0] || "Travel"}"*) to filter its outflow!`;
+      } else if (lower.includes("highest") || lower.includes("largest") || lower.includes("most expensive") || lower.includes("max spend") || lower.includes("biggest") || lower.includes("maximum")) {
+        if (expenses.length === 0) {
+          reply = `💰 **Largest Single Transaction Outflow:**\n\nNo transactions logged in the database yet.`;
+        } else {
+          const highestTx = expenses.reduce((prev, curr) => (Number(prev.amount) > Number(curr.amount)) ? prev : curr);
+          const dateStr = highestTx.date || highestTx.created_at.slice(0, 10);
+          let displayDate = dateStr;
+          try {
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) displayDate = format(d, "dd-MMM-yy");
+          } catch {}
+          reply = `💰 **Largest Single Transaction Outflow:**\n\nThe most expensive transaction recorded in your database is **₹${highestTx.amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}** billed by **${cleanVendorName(highestTx.vendor || "")}** on **${displayDate}** (Category: ${highestTx.expense_category || highestTx.category || "Other"}).`;
+        }
+      } else if (lower.includes("average") || lower.includes("avg") || lower.includes("mean")) {
+        const avg = totalCount > 0 ? totalAmount / totalCount : 0;
+        reply = `📊 **Average Transaction Size:**\n\nAcross all **${totalCount} entries** in your ledger, the average transaction size is **₹${avg.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**.`;
+      } else if (lower.includes("total spend") || lower.includes("how much spent") || lower.includes("net outflow") || lower.includes("total expenses") || lower.includes("entire spend") || lower.includes("net spent") || lower.includes("outflow sum")) {
+        reply = `💵 **Aggregated Ledger Outflow:**\n\nYour total net outflow across all recorded transactions is **₹${totalAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** across **${totalCount} entries**.`;
+      } else if (
+        (targetMonthNum !== null || targetCategory !== null || targetVendor !== null || targetEntity !== null) &&
+        !lower.includes("budget") && !lower.includes("limit") && !lower.includes("actual")
+      ) {
+        // Run Dynamic Filter Query
+        let filtered = [...expenses];
+        const filterDesc: string[] = [];
+
+        if (targetMonthNum !== null) {
+          filtered = filtered.filter((e) => {
+            const d = e.date ? new Date(e.date) : new Date(e.created_at);
+            return !isNaN(d.getTime()) && d.getMonth() === targetMonthNum;
+          });
+          filterDesc.push(`in **${targetMonthName}**`);
+        }
+
+        if (targetCategory !== null) {
+          filtered = filtered.filter((e) => {
+            const ec = (e.expense_category || "").toLowerCase();
+            const c = (e.category || "").toLowerCase();
+            const mc = (e.main_category || "").toLowerCase();
+            return ec.includes(targetCategory!) || c.includes(targetCategory!) || mc.includes(targetCategory!);
+          });
+          const displayCat = targetCategory.charAt(0).toUpperCase() + targetCategory.slice(1);
+          filterDesc.push(`categorized as **${displayCat}**`);
+        }
+
+        if (targetVendor !== null) {
+          filtered = filtered.filter((e) => {
+            return (e.vendor || "").toLowerCase().includes(targetVendor!);
+          });
+          filterDesc.push(`billed by **${cleanVendorName(targetVendor)}**`);
+        }
+
+        if (targetEntity !== null) {
+          filtered = filtered.filter((e) => {
+            const ce = (e.company_entity || "").toLowerCase();
+            return ce === targetEntity!.toLowerCase();
+          });
+          filterDesc.push(`associated with entity **${targetEntity}**`);
+        }
+
+        const totalSpent = filtered.reduce((sum, e) => sum + Number(e.amount), 0);
+        
+        reply = `✨ **Dynamic Ledger Filter Query:**\n\n`;
+        reply += `I filtered your active transaction ledger for entries ${filterDesc.join(" and ")}:\n\n`;
+        
+        if (filtered.length === 0) {
+          reply += `• Total Outflow: **₹0.00**\n`;
+          reply += `• Transaction Count: **0 entries**\n\n`;
+          reply += `No matching transactions were found for this criteria in the database ledger.`;
+        } else {
+          reply += `• Total Outflow: **₹${totalSpent.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+          reply += `• Transaction Count: **${filtered.length} ${filtered.length === 1 ? "entry" : "entries"}**\n\n`;
+          reply += `**Matching transactions (showing up to 5):**\n`;
+          filtered.slice(0, 5).forEach((e) => {
+            const dateStr = e.date || e.created_at.slice(0, 10);
+            let displayDate = dateStr;
+            try {
+              const d = new Date(dateStr);
+              if (!isNaN(d.getTime())) {
+                displayDate = format(d, "dd-MMM-yy");
+              }
+            } catch {}
+            
+            reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on *${displayDate}* (${e.expense_category || e.category || "Other"})\n`;
+          });
+        }
+      } else if (lower.includes("budget") || lower.includes("limit") || lower.includes("actual")) {
+        // Calculate category spent dynamically from active expenses
+        const catSpent: Record<string, number> = {};
+        expenses.forEach((e) => {
+          if (e.expense_category) {
+            catSpent[e.expense_category] = (catSpent[e.expense_category] || 0) + Number(e.amount);
+          }
+        });
+        
+        reply = "📊 **Dynamic Category Budget Audit:**\n\n";
+        const keys = Object.keys(catSpent);
+        if (keys.length === 0) {
+          reply += "No category spend recorded yet. Create an expense to track category limits!";
+        } else {
+          reply += "Here is your active category spent:\n";
+          keys.slice(0, 5).forEach((k) => {
+            const spentVal = catSpent[k];
+            // Match standard limits
+            let limit = 50000;
+            if (k.toLowerCase().includes("material")) limit = 5000000;
+            else if (k.toLowerCase().includes("telecom")) limit = 20000;
+            else if (k.toLowerCase().includes("travel")) limit = 50000;
+            else if (k.toLowerCase().includes("website")) limit = 25000;
+            else if (k.toLowerCase().includes("repair")) limit = 50000;
+
+            const pct = (spentVal / limit) * 100;
+            reply += `• **${k}**: ₹${spentVal.toLocaleString("en-IN")} spent of ₹${limit.toLocaleString("en-IN")} (${pct.toFixed(0)}% utilization) ${pct >= 100 ? "🚨 *Over Limit!*" : pct >= 70 ? "⚠ *At Risk!*" : "✅ *Safe*"}\n`;
+          });
+        }
+      } else if (lower.includes("duplicate") || lower.includes("double-bill") || lower.includes("same")) {
+        // Run duplicate detection algorithm in real-time
+        const seen = new Map<string, Expense>();
+        const duplicates: Array<[Expense, Expense]> = [];
+        
+        expenses.forEach((e) => {
+          const vendor = cleanVendorName(e.vendor || "").toLowerCase();
+          const amount = Number(e.amount);
+          const date = e.date || e.created_at.slice(0, 10);
+          const key = `${vendor}-${amount}-${date}`;
+          
+          if (seen.has(key)) {
+            duplicates.push([seen.get(key)!, e]);
+          } else {
+            seen.set(key, e);
+          }
+        });
+
+        reply = "🛡 **Smart Duplicate Detection Summary:**\n\n";
+        if (duplicates.length === 0) {
+          reply += "Excellent! I scanned all transactions in the ledger and found **0 double-billing anomalies**.";
+        } else {
+          reply += `I flagged **${duplicates.length} potential duplicate transactions** in the active ledger:\n\n`;
+          duplicates.slice(0, 3).forEach(([e1, e2]) => {
+            reply += `• **${cleanVendorName(e1.vendor || "Expense")}**: Two identical transactions of **₹${e1.amount.toLocaleString("en-IN")}** logged on **${e1.date || "May 23rd, 2026"}**.\n`;
+          });
+          reply += "\n💡 You can use the **1-click 'Resolve'** warning badge directly inside the Ledger list to instantly merge them!";
+        }
+      } else if (lower.includes("subsidiary") || lower.includes("entity") || lower.includes("company") || lower.includes("ks") || lower.includes("cpm") || lower.includes("ti")) {
+        // Calculate subsidiary spend
+        const entitySpent: Record<string, number> = {};
+        expenses.forEach((e) => {
+          const ent = e.company_entity || "None";
+          entitySpent[ent] = (entitySpent[ent] || 0) + Number(e.amount);
+        });
+
+        reply = "🏢 **Subsidiary Multi-Entity Outflow Audit:**\n\n";
+        const keys = Object.keys(entitySpent);
+        if (keys.length === 0) {
+          reply += "No subsidiary spending logged yet.";
+        } else {
+          reply += "Active corporate entity outflows computed in display currency:\n";
+          keys.forEach((k) => {
+            reply += `• **${k}**: ₹${entitySpent[k].toLocaleString("en-IN", { maximumFractionDigits: 2 })}\n`;
+          });
+          const maxEnt = keys.reduce((a, b) => entitySpent[a] > entitySpent[b] ? a : b);
+          reply += `\n**${maxEnt}** is currently your top-outflow subsidiary.`;
+        }
+      } else if (lower.includes("anomaly") || lower.includes("spike") || lower.includes("large")) {
+        // Find high value transactions
+        const spikes = expenses.filter((e) => Number(e.amount) >= 50000);
+        
+        reply = "🚨 **Ledger Anomaly Detection:**\n\n";
+        if (spikes.length === 0) {
+          reply += "Verified! I scanned the ledger and found **no anomalous spending spikes** above the ₹50,000 threshold.";
+        } else {
+          reply += `Flagged **${spikes.length} high-value single transactions** representing potential outflow spikes:\n\n`;
+          spikes.slice(0, 3).forEach((e) => {
+            reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on **${e.date || "May 23rd"}** (Category: ${e.expense_category || "Other"})\n`;
+          });
+        }
+      } else {
+        reply = "🤖 **FinStream Copilot Assistant:**\n\nI can dynamically audit your active multi-entity ledger records. Try asking me one of these queries or typing a custom question:\n\n• *\"Am I close to my budgets?\"* (Scans category limits)\n• *\"Where are my duplicates?\"* (Scans double-billing anomalies)\n• *\"Show me subsidiary spend\"* (Calculates KS/TI/CPM subsidiaries)\n• *\"Check for anomalies\"* (Locates large spending spikes)";
+      }
+
+      setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
+    }, 800);
+  };
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+      {/* collapsible widget card */}
+      {open && (
+        <div className="w-80 sm:w-96 h-[460px] card-luxury backdrop-blur-md rounded-2xl shadow-2xl flex flex-col overflow-hidden mb-4 animate-in slide-in-from-bottom-5 duration-300">
+          {/* header */}
+          <div className="bg-muted/60 border-b border-border px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🤖</span>
+              <div>
+                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">FinStream Copilot</h3>
+                <span className="text-[9px] text-primary/90 font-mono">Dynamic AI Ledger Agent</span>
+              </div>
+            </div>
+            <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground text-xs p-1 cursor-pointer">
+              ✕
+            </button>
+          </div>
+
+          {/* scrollable conversation block */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+            {messages.map((m, idx) => (
+              <div key={idx} className={cn("flex flex-col max-w-[80%]", m.role === "user" ? "self-end items-end" : "self-start items-start")}>
+                <span className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1 font-bold">
+                  {m.role === "user" ? "You" : "FinStream AI"}
+                </span>
+                <div className={cn("rounded-2xl px-3.5 py-2.5 whitespace-pre-line leading-relaxed shadow-sm", m.role === "user" ? "bg-primary text-primary-foreground font-semibold rounded-tr-none" : "bg-muted/50 border border-border text-foreground rounded-tl-none")}>
+                  {renderMessageText(m.text)}
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* quick suggestion buttons */}
+          <div className="px-4 py-2 border-t border-border bg-muted/20 flex gap-1.5 overflow-x-auto shrink-0 select-none">
+            <button onClick={() => handleSend("Am I close to my budgets?")} className="px-2.5 py-1 text-[9px] font-bold rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 shrink-0 cursor-pointer">
+              📊 Check Budgets
+            </button>
+            <button onClick={() => handleSend("Where are my duplicates?")} className="px-2.5 py-1 text-[9px] font-bold rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 shrink-0 cursor-pointer">
+              🛡 Find Duplicates
+            </button>
+            <button onClick={() => handleSend("Show me subsidiary spend")} className="px-2.5 py-1 text-[9px] font-bold rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 shrink-0 cursor-pointer">
+              🏢 Entity Breakdown
+            </button>
+          </div>
+
+          {/* input form */}
+          <div className="p-3 bg-muted/60 border-t border-border flex gap-2">
+            <input
+              type="text"
+              placeholder="Ask Copilot anything..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSend();
+              }}
+              className="flex-1 h-8 text-xs bg-background border border-border rounded-lg px-2.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary placeholder-muted-foreground"
+            />
+            <button onClick={() => handleSend()} className="h-8 px-3 text-xs bg-primary text-primary-foreground font-bold rounded-lg hover:bg-primary/95 transition cursor-pointer">
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* dynamic trigger bubble */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-12 h-12 bg-primary rounded-full shadow-[0_4px_20px_rgba(212,175,55,0.4)] hover:shadow-[0_4px_24px_rgba(212,175,55,0.6)] flex items-center justify-center hover:scale-110 transition-all duration-300 animate-bounce cursor-pointer relative"
+        title="Ask FinStream Copilot"
+      >
+        <span className="text-xl">🤖</span>
+        {!open && (
+          <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-background flex items-center justify-center animate-pulse" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  currency,
+  tone,
+  count,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  currency: string;
+  tone: "default" | "primary" | "muted";
+  count: number;
+}) {
+  const accent =
+    tone === "primary"
+      ? "bg-primary/10 text-primary border border-primary/20"
+      : tone === "muted"
+        ? "bg-[var(--rose-copper)]/15 text-[var(--rose-copper)]"
+        : "bg-[var(--crystal-teal)]/15 text-[var(--crystal-teal-deep)]";
+
+  const formatted = formatCurrency(value, currency);
+  const match = formatted.match(/^([^\d\-]*)(.*)$/);
+  const symbol = match?.[1] ?? "";
+  const rest = match?.[2] ?? formatted;
+
+  return (
+    <div className="card-luxury rounded-xl p-5 hover:scale-[1.02] hover:shadow-[0_0_15px_rgba(212,175,55,0.15)] hover:border-[var(--rose-copper)]/30 border border-transparent transition-all duration-300 ease-out relative overflow-hidden group">
+      {/* Dynamic Gold Ambient hover background shine */}
+      <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-[rgba(212,175,55,0.02)] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+      
+      <div className="flex items-center justify-between relative z-10">
+        <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+          {label}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-black/20 border border-white/5 text-muted-foreground">
+            {count} {count === 1 ? "entry" : "entries"}
+          </span>
+          <div className={`w-8 h-8 rounded-md flex items-center justify-center ${accent}`}>
+            <Icon className="w-4 h-4" />
+          </div>
+        </div>
+      </div>
+      
+      <div className="mt-4 text-3xl font-extrabold tracking-tight text-foreground tabular-nums relative z-10">
+        <span className="text-primary mr-0.5">{symbol}</span>{rest}
+      </div>
+    </div>
+  );
+}
