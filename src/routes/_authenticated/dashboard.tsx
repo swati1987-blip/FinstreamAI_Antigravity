@@ -601,9 +601,18 @@ function Dashboard() {
               {/* Business + bill date row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-[var(--rose-copper)]" /> Business
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-[var(--rose-copper)]" /> Business
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewBusiness(!showNewBusiness)}
+                      className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3 text-primary" /> Add Business
+                    </button>
+                  </div>
                   <Select value={businessId} onValueChange={handleBusinessChange}>
                     <SelectTrigger className="bg-background border-[var(--rose-copper)]/40">
                       <SelectValue placeholder="Select a business" />
@@ -613,9 +622,6 @@ function Dashboard() {
                       {businesses.map((b) => (
                         <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                       ))}
-                      <SelectItem value={ADD_NEW_VALUE}>
-                        + Add new business…
-                      </SelectItem>
                     </SelectContent>
                   </Select>
                   {showNewBusiness && (

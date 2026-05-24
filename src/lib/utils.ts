@@ -6,18 +6,22 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const EXPENSE_CATEGORIES = [
-  "Advertisement",
   "Admin Costs",
+  "Advertisement",
   "Business Promotion",
   "Courier/Transportation",
   "Fuel",
   "Insurance",
+  "Investment",
   "Legal",
   "Marketing expense",
   "Other expenses",
   "Raw material",
+  "Rent",
   "Repairs and maintenance",
+  "Salary/Wages",
   "Staff Welfare",
+  "Taxes",
   "Telecommunication",
   "Travel",
   "Website",

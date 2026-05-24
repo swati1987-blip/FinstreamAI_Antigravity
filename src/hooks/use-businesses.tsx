@@ -17,12 +17,48 @@ export function useBusinesses() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase
-      .from("businesses")
-      .select("*")
-      .order("name", { ascending: true });
-    setBusinesses((data ?? []) as Business[]);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase
+        .from("businesses")
+        .select("*")
+        .order("name", { ascending: true });
+      
+      if (error) throw error;
+
+      const loaded = data as Business[];
+      const standardNames = ["KS", "TI", "CPM", "AAS", "Swati", "Others"];
+      
+      // Check which standard entities are missing
+      const missingNames = standardNames.filter(
+        (name) => !loaded.some((b) => b.name.toUpperCase() === name.toUpperCase())
+      );
+
+      if (missingNames.length > 0) {
+        console.log("Seeding missing standard corporate entities:", missingNames);
+        const inserts = missingNames.map((name) => ({
+          name,
+          user_id: user.id
+        }));
+        
+        const { data: seeded, error: seedError } = await supabase
+          .from("businesses")
+          .insert(inserts)
+          .select();
+        
+        if (!seedError && seeded) {
+          const combined = [...loaded, ...seeded].sort((a, b) => a.name.localeCompare(b.name));
+          setBusinesses(combined);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setBusinesses(loaded);
+    } catch (err) {
+      console.error("Error loading/seeding businesses:", err);
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
   useEffect(() => {

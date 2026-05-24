@@ -200,7 +200,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   amount: 3960.00,
                   category: "Business",
                   currency: "INR",
-                  description: "Raw material · Packaging boxes",
+                  description: "Raw material · Packaging boxes @ ₹3.96/box",
                   date: "2026-05-05",
                 };
               }
@@ -262,7 +262,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   amount: 246620.00,
                   category: "Business",
                   currency: "INR",
-                  description: "Raw material · Precipitated Calcium Carbonate",
+                  description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg",
                   date: "2026-05-18",
                   company_entity: "KS",
                 };
@@ -274,7 +274,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   amount: 136880.00,
                   category: "Business",
                   currency: "INR",
-                  description: "Raw material · Precipitated Silica Powder",
+                  description: "Raw material · Precipitated Silica Powder @ ₹46/kg",
                   date: "2026-01-10",
                   company_entity: "KS",
                 };
@@ -286,7 +286,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   amount: 188210.00,
                   category: "Business",
                   currency: "INR",
-                  description: "Raw material · Precipitated Calcium Carbonate",
+                  description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg",
                   date: "2026-01-19",
                   company_entity: "KS",
                 };
@@ -418,7 +418,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               amount: 246620.00,
               category: "Business",
               currency: "INR",
-              description: "Raw material · Precipitated Calcium Carbonate",
+              description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg",
               date: "2026-05-18",
               company_entity: "KS",
             };
@@ -430,7 +430,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               amount: 136880.00,
               category: "Business",
               currency: "INR",
-              description: "Raw material · Precipitated Silica Powder",
+              description: "Raw material · Precipitated Silica Powder @ ₹46/kg",
               date: "2026-01-10",
               company_entity: "KS",
             };
@@ -442,7 +442,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               amount: 188210.00,
               category: "Business",
               currency: "INR",
-              description: "Raw material · Precipitated Calcium Carbonate",
+              description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg",
               date: "2026-01-19",
               company_entity: "KS",
             };
@@ -505,10 +505,17 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
     const gateway = createLovableAiGatewayProvider(apiKey);
     const model = gateway("google/gemini-2.5-flash");
 
-    const instructions = `You extract a single expense entry from the user's input. Default currency is ${data.defaultCurrency} (use it only when no other currency is mentioned). Recognise symbols like ₹ = INR, $ = USD, € = EUR, £ = GBP, ¥ = JPY. Infer Business vs Personal from context (office supplies, software, client meals = Business; groceries, entertainment, personal items = Personal). If an attachment is present (receipt image, bill PDF, or voice note), read it carefully to extract vendor, total amount, and currency. If both text and attachment are provided, prefer the attachment for amounts and use the text as additional context.
+    const instructions = `You extract a single expense entry from the user's input. Default currency is ${data.defaultCurrency} (use it only when no other currency is mentioned). Recognise symbols like ₹ = INR, $ = USD, € = EUR, £ = GBP, ¥ = JPY. Infer Business vs Personal from context (office supplies, software, client meals = Business; groceries, entertainment, personal items = Personal). If an attachment is present (receipt image, bill PDF, or voice note), read it carefully to extract details. If both text and attachment are provided, prefer the attachment for amounts and use the text as additional context.
+
+You can also extract these optional fields if found or implied in the input:
+- "date": Date in "YYYY-MM-DD" format.
+- "company_entity": One of "KS", "TI", "CPM", "AAS", or "None". Identify which internal business entity paid or is billed. If context clues suggest KS, TI, CPM, or AAS, use it; otherwise "None".
+- "description": A concise, structured description of the item or service.
+  * CRITICAL FOR RAW MATERIALS: If the expense is for manufacturing raw materials, chemical ingredients, or packaging supplies (e.g., precipitated calcium carbonate, precipitated silica powder, packing/packaging boxes, chemicals, bulk plastic, etc.), identify the EXACT nature of the raw material (e.g., "Precipitated Calcium Carbonate") and its unit rate/price (e.g., "@ ₹12/kg", "@ ₹46/kg", "@ ₹3.96/box"). You MUST format the description field exactly as: "Raw material · [Nature] @ [Rate]" (e.g., "Raw material · Precipitated Calcium Carbonate @ ₹12/kg"). If no rate is found, use "Raw material · [Nature]".
+  * For other categories, formulate a clean description, e.g. "Repairs and maintenance · Mechanical spares" or "Personal · Coffee and snacks".
 
 Respond with ONLY a single JSON object on one line, no markdown, no code fences, no commentary. Shape:
-{"vendor": string, "amount": number, "category": "Business" | "Personal", "currency": "INR" | "USD" | "EUR" | "GBP" | "JPY" | "AUD" | "CAD" | "SGD" | "AED" | "CHF"}`;
+{"vendor": string, "amount": number, "category": "Business" | "Personal", "currency": "INR" | "USD" | "EUR" | "GBP" | "JPY" | "AUD" | "CAD" | "SGD" | "AED" | "CHF", "date"?: string, "company_entity"?: "KS" | "TI" | "CPM" | "AAS" | "None", "description"?: string}`;
 
     const userParts: Array<
       | { type: "text"; text: string }

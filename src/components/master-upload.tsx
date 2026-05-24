@@ -460,17 +460,17 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
           let expCategory = "Other expenses";
           const EXPENSE_CATEGORIES_LOWER = [
             "advertisement", "admin costs", "business promotion", "courier/transportation",
-            "fuel", "insurance", "legal", "marketing expense", "other expenses",
-            "raw material", "repairs and maintenance", "staff welfare",
-            "telecommunication", "travel", "website"
+            "fuel", "insurance", "investment", "legal", "marketing expense", "other expenses",
+            "raw material", "rent", "repairs and maintenance", "salary/wages", "staff welfare",
+            "taxes", "telecommunication", "travel", "website"
           ];
           const matchedIndex = EXPENSE_CATEGORIES_LOWER.indexOf(rawDescription.toLowerCase().trim());
           if (matchedIndex !== -1) {
             const EXPENSE_CATEGORIES_ORIGINAL = [
               "Advertisement", "Admin Costs", "Business Promotion", "Courier/Transportation",
-              "Fuel", "Insurance", "Legal", "Marketing expense", "Other expenses",
-              "Raw material", "Repairs and maintenance", "Staff Welfare",
-              "Telecommunication", "Travel", "Website"
+              "Fuel", "Insurance", "Investment", "Legal", "Marketing expense", "Other expenses",
+              "Raw material", "Rent", "Repairs and maintenance", "Salary/Wages", "Staff Welfare",
+              "Taxes", "Telecommunication", "Travel", "Website"
             ];
             expCategory = EXPENSE_CATEGORIES_ORIGINAL[matchedIndex];
           }
