@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { format } from "date-fns";
-import { Loader2, Inbox, Receipt, Trash2, CalendarIcon, Plus, Pencil, X } from "lucide-react";
+import { Loader2, Inbox, Receipt, Trash2, CalendarIcon, Plus, Pencil, X, RefreshCw } from "lucide-react";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { CurrencySwitcher } from "@/components/currency-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -111,6 +111,9 @@ function TransactionsPage() {
   const [syncStep, setSyncStep] = useState(0);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncError, setSyncError] = useState("");
+  const [autoSync, setAutoSync] = useState(() => typeof window !== "undefined" ? localStorage.getItem("finstream_n8n_auto_sync") === "true" : false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -326,6 +329,66 @@ function TransactionsPage() {
       supabase.removeChannel(channel);
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !autoSync || !webhookUrl || !useRealWebhook) return;
+    
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+
+    // Debounce background auto-sync by 2.5 seconds
+    const timer = setTimeout(async () => {
+      setIsAutoSyncing(true);
+      console.log("[Auto-Sync] Initiating automatic background sync to Google Sheets...");
+
+      const chronologicalTransactions = [...sortedAndFiltered].sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : new Date(a.created_at).getTime();
+        const dateB = b.date ? new Date(b.date).getTime() : new Date(b.created_at).getTime();
+        return dateA - dateB;
+      });
+
+      const payload = {
+        export_time: new Date().toISOString(),
+        timeframe: "Transactions Auto-Sync",
+        total_amount_inr: chronologicalTransactions.reduce((sum, item) => sum + convertAmount(item.amount, item.currency, "INR", item.created_at), 0),
+        transaction_count: chronologicalTransactions.length,
+        ai_summary: "FinStream Ledger Transactions Real-Time Auto-Sync",
+        transactions: chronologicalTransactions.map((r) => ({
+          date: (r.date || r.created_at).split("T")[0],
+          vendor: r.vendor || "Unknown",
+          category: r.category || "Business",
+          entity: r.company_entity || "None",
+          expense_category: r.expense_category || "Other expenses",
+          description: r.raw_text || "",
+          amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at),
+          currency: r.currency,
+        }))
+      };
+
+      try {
+        const res = await fetch(webhookUrl, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "bypass-tunnel-reminder": "true"
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          throw new Error(`Sync error: ${res.status}`);
+        }
+        console.log("[Auto-Sync] Google Sheets synchronized successfully in the background.");
+      } catch (err) {
+        console.error("[Auto-Sync] Background auto-sync failed:", err);
+      } finally {
+        setIsAutoSyncing(false);
+      }
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [items, autoSync, webhookUrl, useRealWebhook, user]);
 
   const handleSave = async () => {
     if (!editing || !user) {
@@ -1001,6 +1064,12 @@ function TransactionsPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
               <Receipt className="w-5 h-5" /> Transactions
+              {isAutoSyncing && (
+                <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 animate-pulse ml-2">
+                  <RefreshCw className="w-3 h-3 animate-spin text-emerald-400" />
+                  Auto-Syncing Sheets...
+                </span>
+              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               All your captured expenses, converted to your display currency.
@@ -2015,21 +2084,43 @@ function TransactionsPage() {
                       </div>
 
                       {useRealWebhook && (
-                        <div className="space-y-1.5 pt-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-400">
-                            Webhook Target URL
-                          </label>
-                          <input
-                            type="url"
-                            value={webhookUrl}
-                            onChange={(e) => handleSaveWebhook(e.target.value)}
-                            placeholder="http://localhost:5678/webhook/..."
-                            className="w-full text-xs bg-[#0E1629] border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary placeholder-slate-500"
-                          />
-                          <p className="text-[10px] text-slate-400">
-                            Endpoint must accept a HTTP POST request with transaction JSON payload.
-                          </p>
-                        </div>
+                        <>
+                          <div className="flex items-center justify-between border-t border-slate-850/30 pt-3">
+                            <div className="flex flex-col gap-0.5 pr-2">
+                              <label className="text-xs font-semibold text-slate-200">Real-Time Auto-Sync</label>
+                              <span className="text-[10px] text-slate-400 leading-relaxed">
+                                Automatically push updates to your Google Sheet in the background whenever transactions change.
+                              </span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={autoSync}
+                              onChange={(e) => {
+                                setAutoSync(e.target.checked);
+                                if (typeof window !== "undefined") {
+                                  localStorage.setItem("finstream_n8n_auto_sync", e.target.checked ? "true" : "false");
+                                }
+                              }}
+                              className="w-4.5 h-4.5 text-primary bg-[#0E1629] border-slate-700 rounded focus:ring-primary focus:ring-2 cursor-pointer shrink-0"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5 pt-3 border-t border-slate-850/30">
+                            <label className="text-[10px] uppercase font-bold text-slate-400">
+                              Webhook Target URL
+                            </label>
+                            <input
+                              type="url"
+                              value={webhookUrl}
+                              onChange={(e) => handleSaveWebhook(e.target.value)}
+                              placeholder="http://localhost:5678/webhook/..."
+                              className="w-full text-xs bg-[#0E1629] border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary placeholder-slate-500"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              Endpoint must accept a HTTP POST request with transaction JSON payload.
+                            </p>
+                          </div>
+                        </>
                       )}
                     </div>
 

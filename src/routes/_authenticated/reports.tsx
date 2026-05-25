@@ -169,6 +169,7 @@ function ReportsPage() {
   const [syncStep, setSyncStep] = useState(0);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncError, setSyncError] = useState("");
+  const [autoSync, setAutoSync] = useState(() => typeof window !== "undefined" ? localStorage.getItem("finstream_n8n_auto_sync") === "true" : false);
 
   const handleSaveWebhook = (url: string) => {
     setWebhookUrl(url);
@@ -1719,21 +1720,43 @@ function ReportsPage() {
                       </div>
 
                       {useRealWebhook && (
-                        <div className="space-y-1.5 pt-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-400">
-                            Webhook Target URL
-                          </label>
-                          <input
-                            type="url"
-                            value={webhookUrl}
-                            onChange={(e) => handleSaveWebhook(e.target.value)}
-                            placeholder="https://n8n.yourdomain.com/webhook/..."
-                            className="w-full text-xs bg-[#0E1629] border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary placeholder-slate-500"
-                          />
-                          <p className="text-[10px] text-slate-400">
-                            Endpoint must accept a HTTP POST request with transaction JSON payload.
-                          </p>
-                        </div>
+                        <>
+                          <div className="flex items-center justify-between border-t border-slate-850/30 pt-3">
+                            <div className="flex flex-col gap-0.5 pr-2">
+                              <label className="text-xs font-semibold text-slate-200">Real-Time Auto-Sync</label>
+                              <span className="text-[10px] text-slate-400 leading-relaxed">
+                                Automatically push updates to your Google Sheet in the background whenever transactions change.
+                              </span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={autoSync}
+                              onChange={(e) => {
+                                setAutoSync(e.target.checked);
+                                if (typeof window !== "undefined") {
+                                  localStorage.setItem("finstream_n8n_auto_sync", e.target.checked ? "true" : "false");
+                                }
+                              }}
+                              className="w-4.5 h-4.5 text-primary bg-[#0E1629] border-slate-700 rounded focus:ring-primary focus:ring-2 cursor-pointer shrink-0"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5 pt-3 border-t border-slate-850/30">
+                            <label className="text-[10px] uppercase font-bold text-slate-400">
+                              Webhook Target URL
+                            </label>
+                            <input
+                              type="url"
+                              value={webhookUrl}
+                              onChange={(e) => handleSaveWebhook(e.target.value)}
+                              placeholder="https://n8n.yourdomain.com/webhook/..."
+                              className="w-full text-xs bg-[#0E1629] border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary placeholder-slate-500"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              Endpoint must accept a HTTP POST request with transaction JSON payload.
+                            </p>
+                          </div>
+                        </>
                       )}
                     </div>
 
