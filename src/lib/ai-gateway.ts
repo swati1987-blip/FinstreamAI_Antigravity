@@ -9,3 +9,12 @@ export const createLovableAiGatewayProvider = (lovableApiKey: string) =>
       "X-Lovable-AIG-SDK": "vercel-ai-sdk",
     },
   });
+
+export const createDirectGoogleProvider = (geminiApiKey: string) =>
+  createOpenAICompatible({
+    name: "google-gemini",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+    headers: {
+      Authorization: `Bearer ${geminiApiKey}`,
+    },
+  });

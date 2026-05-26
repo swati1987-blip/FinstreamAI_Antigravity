@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { generateText, type ModelMessage } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider } from "./ai-gateway";
+import { createLovableAiGatewayProvider, createDirectGoogleProvider } from "./ai-gateway";
 import { SUPPORTED_CURRENCIES } from "./expense-shared";
 
 const inputSchema = z
@@ -587,8 +587,11 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
       throw new Error("AI capture is temporarily unavailable. Add a short text note with an amount and try again.");
     }
 
-    const gateway = createLovableAiGatewayProvider(apiKey);
-    const model = gateway("google/gemini-2.5-flash");
+    const isDirectGoogle = apiKey.startsWith("AIzaSy");
+    const gateway = isDirectGoogle
+      ? createDirectGoogleProvider(apiKey)
+      : createLovableAiGatewayProvider(apiKey);
+    const model = gateway(isDirectGoogle ? "gemini-2.5-flash" : "google/gemini-2.5-flash");
 
     const instructions = `You extract a single expense entry from the user's input. Default currency is ${data.defaultCurrency} (use it only when no other currency is mentioned). Recognise symbols like ₹ = INR, $ = USD, € = EUR, £ = GBP, ¥ = JPY. Infer Business vs Personal from context (office supplies, software, client meals = Business; groceries, entertainment, personal items = Personal). If an attachment is present (receipt image, bill PDF, or voice note), read it carefully to extract details. If both text and attachment are provided, prefer the attachment for amounts and use the text as additional context.
 
