@@ -146,7 +146,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
 
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) {
-      if (textFallback) return textFallback;
+      if (textFallback && !data.attachment) return textFallback;
 
       if (data.attachment) {
         const { kind, name, dataUrl } = data.attachment;
