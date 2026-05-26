@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { 
@@ -96,6 +96,7 @@ function parseRawMaterialDesc(rawText: string | null) {
 function RawMaterialsPage() {
   const { user } = useAuth();
   const { currency: displayCurrency } = useCurrency();
+  const navigate = useNavigate();
   const [items, setItems] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -570,7 +571,8 @@ function RawMaterialsPage() {
                   {filteredRecords.map((record) => (
                     <tr 
                       key={record.id}
-                      className="hover:bg-[rgba(212,175,55,0.025)] transition-colors duration-150"
+                      onClick={() => void navigate({ to: "/transactions", search: { edit: record.id } })}
+                      className="hover:bg-[rgba(212,175,55,0.025)] transition-colors duration-150 cursor-pointer"
                     >
                       {/* Date */}
                       <td className="py-4 px-5 whitespace-nowrap text-muted-foreground">

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouterState, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import { Loader2, Inbox, Receipt, Trash2, CalendarIcon, Plus, Pencil, X, RefreshCw } from "lucide-react";
@@ -82,6 +82,29 @@ function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [adding, setAdding] = useState(false);
+
+  const search = useRouterState({ select: (s) => s.location.search }) as any;
+  const navigate = useNavigate();
+  const editId = search.edit;
+
+  // Open Edit sheet if editId is provided in URL query params
+  useEffect(() => {
+    if (editId && items.length > 0) {
+      const found = items.find((item) => item.id === editId);
+      if (found) {
+        setEditing(found);
+      }
+    }
+  }, [editId, items]);
+
+  // Strip query param once user finishes or cancels editing
+  useEffect(() => {
+    if (!editing && search.edit) {
+      void navigate({
+        search: {} as any,
+      });
+    }
+  }, [editing, search.edit]);
   const [deleting, setDeleting] = useState<Expense | null>(null);
   const [saving, setSaving] = useState(false);
   const [mainTab, setMainTab] = useState<MainTab>("all");
