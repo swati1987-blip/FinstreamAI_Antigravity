@@ -705,21 +705,29 @@ function Dashboard() {
           {/* Capture */}
           <section className="relative rounded-xl border border-border bg-card shadow-sm overflow-hidden">
             {batchProgress && (
-              <div className="absolute inset-0 bg-background/95 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 animate-fade-in">
-                <div className="w-full max-w-xs space-y-4 text-center">
-                  <div className="relative w-14 h-14 mx-auto flex items-center justify-center">
-                    <Loader2 className="w-10 h-10 animate-spin text-[var(--rose-copper)]" />
-                    <div className="absolute inset-0 rounded-full border border-dashed border-[var(--rose-copper)]/30 animate-spin-reverse" style={{ animationDuration: '6s' }} />
+              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl flex flex-col items-center justify-center p-6 z-50 animate-fade-in border border-white/5 rounded-xl">
+                <div className="w-full max-w-xs space-y-5 text-center">
+                  {/* Rotating Conic Ring Loader */}
+                  <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+                    {/* Outer Conic Ring */}
+                    <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,var(--rose-copper),#F9F3D9,var(--rose-copper))] animate-spin p-[2px]">
+                      {/* Inner Dark Mask */}
+                      <div className="w-full h-full rounded-full bg-[#0B1124] flex items-center justify-center">
+                        <Sparkles className="w-5 h-5 text-[#F9F3D9] filter drop-shadow-[0_0_6px_rgba(212,175,55,0.6)] animate-pulse" />
+                      </div>
+                    </div>
                   </div>
+
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold tracking-wide text-foreground">
+                    <p className="text-sm font-semibold tracking-wide text-[var(--marble-white)] animate-pulse">
                       AI is parsing your receipts...
                     </p>
-                    <p className="text-xs text-muted-foreground font-mono">
+                    <p className="text-xs text-[var(--marble-white)]/60 font-mono">
                       Receipt {batchProgress.current} of {batchProgress.total}
                     </p>
                   </div>
-                  <div className="space-y-1">
+
+                  <div className="space-y-1.5">
                     <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-white/5">
                       <div 
                         className="h-full bg-gradient-to-r from-[var(--rose-copper)] to-[#F9F3D9] transition-all duration-300 ease-out rounded-full shadow-[0_0_8px_rgba(212,175,55,0.4)]"
