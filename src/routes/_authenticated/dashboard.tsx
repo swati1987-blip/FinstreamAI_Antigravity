@@ -113,6 +113,7 @@ function Dashboard() {
   const [showNewBusiness, setShowNewBusiness] = useState(false);
 
   const [processing, setProcessing] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -325,6 +326,135 @@ function Dashboard() {
       });
     } catch {
       toast.error("Could not read file");
+    }
+  };
+
+  const handleMultipleFiles = async (
+    filesList: FileList | null,
+    kind: "image" | "pdf",
+  ) => {
+    if (!filesList || filesList.length === 0) return;
+    if (!user) {
+      toast.error("You must be signed in");
+      return;
+    }
+
+    // If only one file is selected, use the standard preview-and-edit flow!
+    if (filesList.length === 1) {
+      void handleFilePick(filesList[0], kind);
+      return;
+    }
+
+    // Process multiple files in a batch!
+    const files = Array.from(filesList);
+    setProcessing(true);
+    setBatchProgress({ current: 0, total: files.length });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setBatchProgress({ current: i + 1, total: files.length });
+
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        toast.error(`"${file.name}" is too large (max 8 MB)`);
+        failCount++;
+        continue;
+      }
+
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        const mimeType = file.type || (kind === "pdf" ? "application/pdf" : "image/*");
+
+        // Parse with Gemini
+        const parsed = await parseFn({
+          data: {
+            rawText: "",
+            defaultCurrency: captureCurrency,
+            attachment: {
+              dataUrl,
+              mimeType,
+              kind,
+              name: file.name,
+              sizeKb: Math.round(file.size / 1024),
+            },
+          },
+        });
+
+        const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
+        const linkedBusiness = businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
+
+        let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
+        if (parsed.company_entity && parsed.company_entity !== "None") {
+          entityName = parsed.company_entity;
+        } else if (parsed.category === "Business" && linkedBusiness) {
+          const biz = businesses.find((b) => b.id === linkedBusiness);
+          if (biz) {
+            const bname = biz.name.toUpperCase();
+            if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
+              entityName = bname as any;
+            }
+          }
+        }
+
+        const mainCategoryVal = parsed.category === "Business" ? "Business" : "Personal";
+        const { expenseCategory } = parseExpenseCategoryAndDescription(parsed.description);
+
+        const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
+        const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+
+        // Insert into Supabase
+        const { data: inserted, error } = await supabase
+          .from("expenses")
+          .insert({
+            amount: parsed.amount,
+            vendor: parsed.vendor,
+            category: parsed.category,
+            currency: detectedCurrency,
+            raw_text: parsed.description || `[${kind}] ${file.name}`,
+            user_id: user.id,
+            business_id: linkedBusiness,
+            created_at: effectiveDate.toISOString(),
+            date: effectiveDateStr,
+            main_category: mainCategoryVal,
+            company_entity: entityName,
+            expense_category: expenseCategory,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Create audit record
+        const rate = getRateToINR(detectedCurrency, effectiveDate);
+        const inrAmount = parsed.amount * rate;
+
+        await supabase.from("audit_records").insert({
+          expense_id: inserted.id,
+          user_id: user.id,
+          bill_date: effectiveDateStr,
+          original_currency: detectedCurrency,
+          original_amount: parsed.amount,
+          exchange_rate_to_inr: rate,
+        });
+
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to batch-process "${file.name}":`, err);
+        failCount++;
+      }
+    }
+
+    setProcessing(false);
+    setBatchProgress(null);
+    loadExpenses();
+
+    if (successCount > 0) {
+      toast.success(`Successfully parsed and saved ${successCount} receipt(s)!`);
+    }
+    if (failCount > 0) {
+      toast.error(`Failed to process ${failCount} receipt(s).`);
     }
   };
 
@@ -573,7 +703,33 @@ function Dashboard() {
 
         <div className="px-6 lg:px-10 py-8 space-y-8 max-w-6xl">
           {/* Capture */}
-          <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <section className="relative rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            {batchProgress && (
+              <div className="absolute inset-0 bg-background/95 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 animate-fade-in">
+                <div className="w-full max-w-xs space-y-4 text-center">
+                  <div className="relative w-14 h-14 mx-auto flex items-center justify-center">
+                    <Loader2 className="w-10 h-10 animate-spin text-[var(--rose-copper)]" />
+                    <div className="absolute inset-0 rounded-full border border-dashed border-[var(--rose-copper)]/30 animate-spin-reverse" style={{ animationDuration: '6s' }} />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold tracking-wide text-foreground">
+                      AI is parsing your receipts...
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Receipt {batchProgress.current} of {batchProgress.total}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-white/5">
+                      <div 
+                        className="h-full bg-gradient-to-r from-[var(--rose-copper)] to-[#F9F3D9] transition-all duration-300 ease-out rounded-full shadow-[0_0_8px_rgba(212,175,55,0.4)]"
+                        style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
@@ -703,9 +859,10 @@ function Dashboard() {
                 ref={imageInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  void handleFilePick(e.target.files?.[0], "image");
+                  void handleMultipleFiles(e.target.files, "image");
                   e.target.value = "";
                 }}
               />
@@ -713,9 +870,10 @@ function Dashboard() {
                 ref={pdfInputRef}
                 type="file"
                 accept="application/pdf"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  void handleFilePick(e.target.files?.[0], "pdf");
+                  void handleMultipleFiles(e.target.files, "pdf");
                   e.target.value = "";
                 }}
               />
