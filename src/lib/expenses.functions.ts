@@ -609,7 +609,9 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
     > = [];
 
     const text = data.rawText?.trim() ?? "";
-    if (text) userParts.push({ type: "text", text: `Note from user: ${text}` });
+    if (text && !text.startsWith("batch_index:")) {
+      userParts.push({ type: "text", text: `Note from user: ${text}` });
+    }
 
     if (data.attachment) {
       const url = new URL(data.attachment.dataUrl);
