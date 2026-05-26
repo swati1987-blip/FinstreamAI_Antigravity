@@ -163,6 +163,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               const buffer = Buffer.from(base64Data, "base64");
               const crypto = await import("crypto");
               const hash = crypto.createHash("md5").update(buffer).digest("hex").toLowerCase();
+              console.log("[Mock Capture Log] Calculated MD5 signature for", name || "attachment", "is:", hash);
               
               if (hash === "d5e7df9e51ba5a40cf99e1cdd3cef335" || hash === "7f1d289929736b21e4ed7e2cee5cf6c2") {
                 return {
