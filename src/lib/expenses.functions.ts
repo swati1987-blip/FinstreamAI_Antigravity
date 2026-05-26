@@ -171,6 +171,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   category: "Personal",
                   currency: "INR",
                   description: "Personal · Coffee and snacks",
+                  date: "2026-05-22",
                 };
               }
               
@@ -181,6 +182,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   category: "Business",
                   currency: "USD",
                   description: "Website · Canva subscription",
+                  date: "2026-05-01",
                 };
               }
               
@@ -191,6 +193,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   category: "Business",
                   currency: "INR",
                   description: "Repairs and maintenance · Printing systems",
+                  date: "2026-05-15",
                 };
               }
 
@@ -309,7 +312,13 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               hashNum = (hashNum << 5) - hashNum + name.charCodeAt(charIndex);
               hashNum = hashNum & hashNum;
             }
-            const index = Math.abs(hashNum) % 7;
+            let index = Math.abs(hashNum) % 7;
+            if (data.rawText && data.rawText.startsWith("batch_index:")) {
+              const parsedIdx = parseInt(data.rawText.split(":")[1].trim());
+              if (!isNaN(parsedIdx)) {
+                index = parsedIdx % 7;
+              }
+            }
             const mockPool = [
               {
                 vendor: "Indian Coffee House",
@@ -317,6 +326,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                 category: "Personal" as const,
                 currency: "INR",
                 description: "Personal · Coffee and snacks",
+                date: "2026-05-22",
               },
               {
                 vendor: "Sacha Dubois",
@@ -324,6 +334,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                 category: "Business" as const,
                 currency: "USD",
                 description: "Website · Canva subscription",
+                date: "2026-05-01",
               },
               {
                 vendor: "Kiara-Tech Printing Systems",
@@ -331,6 +342,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                 category: "Business" as const,
                 currency: "INR",
                 description: "Repairs and maintenance · Printing systems",
+                date: "2026-05-15",
               },
               {
                 vendor: "Bhandari Packaging",
@@ -384,6 +396,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               category: "Personal",
               currency: "INR",
               description: "Personal · Coffee and snacks",
+              date: "2026-05-22",
             };
           }
 
@@ -399,6 +412,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               category: "Business",
               currency: "USD",
               description: "Website · Canva subscription",
+              date: "2026-05-01",
             };
           }
 
@@ -416,6 +430,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               category: "Business",
               currency: "INR",
               description: "Repairs and maintenance · Printing systems",
+              date: "2026-05-15",
             };
           }
 

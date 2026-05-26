@@ -370,7 +370,7 @@ function Dashboard() {
         // Parse with Gemini
         const parsed = await parseFn({
           data: {
-            rawText: "",
+            rawText: `batch_index: ${i}`,
             defaultCurrency: captureCurrency,
             attachment: {
               dataUrl,
