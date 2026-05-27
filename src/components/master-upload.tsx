@@ -784,31 +784,53 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
     >
       {/* Premium Glassmorphic Loader & Progress Bar Overlay */}
       {busy && (
-        <div className="absolute inset-0 bg-[#0B1124]/90 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 transition-all duration-300 border border-[rgba(212,175,55,0.25)] rounded-xl">
+        <div 
+          className="absolute inset-0 bg-[#0B1124]/90 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 transition-all duration-300 border rounded-xl"
+          style={{ borderColor: 'var(--border)' }}
+        >
           <div className="w-full max-w-xs space-y-6 text-center animate-fade-in">
             
-            {/* Decorative Amber Glow & Dual Spinner System */}
+            {/* Decorative Glow & Dual Spinner System */}
             <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
               {/* Glowing Aura */}
-              <div className="absolute -inset-4 bg-[radial-gradient(circle,rgba(212,175,55,0.18)_0%,transparent_75%)] pointer-events-none blur-xl animate-pulse" />
+              <div 
+                className="absolute -inset-4 rounded-full pointer-events-none blur-xl animate-pulse"
+                style={{ background: 'radial-gradient(circle, var(--rose-copper) 0%, transparent 70%)', opacity: 0.18 }}
+              />
               
               {/* Outer Counter-Rotating Dashed Dotted Ring */}
               <div 
-                className="absolute inset-[-6px] rounded-full border border-dashed border-[rgba(212,175,55,0.3)] animate-spin" 
-                style={{ animationDuration: "12s", animationDirection: "reverse" }} 
+                className="absolute inset-[-6px] rounded-full border border-dashed animate-spin" 
+                style={{ 
+                  animationDuration: "12s", 
+                  animationDirection: "reverse",
+                  borderColor: 'var(--border)'
+                }} 
               />
               
               {/* Rotating Conic Ring */}
-              <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#D4AF37,#F9F3D9,#D4AF37)] animate-spin p-[1.5px] shadow-[0_0_15px_rgba(212,175,55,0.35)]">
+              <div 
+                className="absolute inset-0 rounded-full animate-spin p-[1.5px] shadow-lg"
+                style={{ 
+                  background: 'conic-gradient(from 0deg, var(--primary), var(--rose-copper), var(--primary))',
+                  boxShadow: '0 0 15px var(--primary)'
+                }}
+              >
                 {/* Inner Dark Mask */}
                 <div className="w-full h-full rounded-full bg-[#0C162F] flex items-center justify-center">
-                  <Sparkles className="w-6 h-6 text-[#F9F3D9] filter drop-shadow-[0_0_8px_rgba(212,175,55,0.85)] animate-pulse" />
+                  <Sparkles 
+                    className="w-6 h-6 text-[var(--primary)] filter animate-pulse" 
+                    style={{ filter: 'drop-shadow(0 0 8px var(--primary))' }}
+                  />
                 </div>
               </div>
             </div>
             
             <div className="space-y-1.5">
-              <p className="text-[15px] font-semibold tracking-wide text-[#F9F3D9] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] animate-pulse">
+              <p 
+                className="text-[15px] font-semibold tracking-wide animate-pulse"
+                style={{ color: 'var(--rose-copper)', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+              >
                 {statusMessage}
               </p>
               <p className="text-[10px] text-[#8A98B0] font-mono font-medium tracking-wider uppercase truncate max-w-full">
@@ -818,15 +840,22 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
 
             {/* Smooth Animated Progress Bar */}
             <div className="space-y-2">
-              <div className="h-1.5 w-full bg-slate-950/80 rounded-full overflow-hidden border border-[rgba(212,175,55,0.15)] shadow-inner">
+              <div 
+                className="h-1.5 w-full bg-slate-950/80 rounded-full overflow-hidden border shadow-inner"
+                style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}
+              >
                 <div 
-                  className="h-full bg-gradient-to-r from-[#9B7C2A] via-[#D4AF37] to-[#F9F3D9] transition-all duration-500 ease-out rounded-full shadow-[0_0_8px_rgba(212,175,55,0.6)]"
-                  style={{ width: `${progressPercent}%` }}
+                  className="h-full transition-all duration-500 ease-out rounded-full"
+                  style={{ 
+                    width: `${progressPercent}%`,
+                    backgroundImage: 'linear-gradient(to right, var(--crystal-teal-deep), var(--primary), var(--rose-copper))',
+                    boxShadow: '0 0 8px var(--primary)'
+                  }}
                 />
               </div>
               <div className="flex justify-between text-[9px] text-[#8A98B0]/80 font-mono tracking-widest uppercase px-0.5">
                 <span>0%</span>
-                <span className="font-bold text-[#F9F3D9]">{progressPercent}%</span>
+                <span className="font-bold text-[var(--primary)]">{progressPercent}%</span>
                 <span>100%</span>
               </div>
             </div>
