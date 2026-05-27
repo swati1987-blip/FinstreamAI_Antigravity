@@ -411,7 +411,7 @@ function Dashboard() {
               sizeKb: Math.round(file.size / 1024),
             },
           },
-        });
+        }) as { vendor: string; amount: number; category: string; currency: string; description?: string; date?: string; company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; line_items?: { vendor: string; amount: number; description?: string }[]; debit_note_target?: string };
 
         const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
         const linkedBusiness = businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
@@ -435,7 +435,98 @@ function Dashboard() {
         const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
         const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
-        // Insert into Supabase
+        // ── Debit Note handling: add amount to the linked invoice ──────────
+        if (parsed.debit_note_target) {
+          const target = parsed.debit_note_target.toLowerCase();
+          const { data: linkedInvoices } = await supabase
+            .from("expenses")
+            .select("*")
+            .ilike("raw_text", `%${target}%`)
+            .limit(1);
+
+          if (linkedInvoices && linkedInvoices.length > 0) {
+            const linked = linkedInvoices[0];
+            const origAmt = Number(linked.amount) || 0;
+            const origDesc = linked.raw_text || "";
+
+            // Only apply once (prevent duplicate on re-upload)
+            if (!origDesc.includes("[Debit Note")) {
+              // Update rate in the description (e.g. ₹3.80 → ₹4.00)
+              let updatedDesc = origDesc;
+              const rateMatch = origDesc.match(/@\s*₹([\d,.]+)/);
+              if (rateMatch) {
+                const oldRate = parseFloat(rateMatch[1].replace(/,/g, ""));
+                // Extract quantity from debit note description to derive per-unit rate increase
+                const qtyMatch = (parsed.description || "").match(/Qty:\s*([\d,]+)/i);
+                const qty = qtyMatch ? parseInt(qtyMatch[1].replace(/,/g, ""), 10) : 1;
+                // Debit note amount includes GST; use base amount (before GST) for rate calc
+                const gstMatch = (parsed.description || "").match(/GST:\s*₹([\d,]+)/i);
+                const gstAmt = gstMatch ? parseFloat(gstMatch[1].replace(/,/g, "")) : 0;
+                const baseDebitAmt = parsed.amount - gstAmt;
+                const rateIncrease = baseDebitAmt / qty;
+                const newRate = (oldRate + rateIncrease).toFixed(2);
+                updatedDesc = updatedDesc.replace(
+                  `@ ₹${rateMatch[1]}`,
+                  `@ ₹${newRate}`
+                );
+              }
+              updatedDesc += ` · [Debit Note +₹${parsed.amount.toLocaleString("en-IN")} rate difference applied]`;
+
+              await supabase
+                .from("expenses")
+                .update({ amount: origAmt + parsed.amount, raw_text: updatedDesc })
+                .eq("id", linked.id);
+
+              toast.success(`Debit Note (₹${parsed.amount.toLocaleString("en-IN")}) applied to linked invoice ${parsed.debit_note_target}!`);
+            } else {
+              toast.info(`Debit Note already applied to ${parsed.debit_note_target}.`);
+            }
+            successCount++;
+            continue;
+          }
+          // If linked invoice not found, fall through and insert as a standalone entry
+        }
+
+        // ── Multi-item invoice: insert each line item as a separate row ───
+        if (parsed.line_items && parsed.line_items.length > 0) {
+          for (const item of parsed.line_items) {
+            const itemExpCat = (item.description || "").toLowerCase().includes("raw material") ? "Raw material" : expenseCategory;
+            const { data: inserted, error } = await supabase
+              .from("expenses")
+              .insert({
+                amount: item.amount,
+                vendor: item.vendor || parsed.vendor,
+                category: parsed.category,
+                currency: detectedCurrency,
+                raw_text: item.description || parsed.description || `[${kind}] ${file.name}`,
+                user_id: user.id,
+                business_id: linkedBusiness,
+                created_at: new Date().toISOString(),
+                date: effectiveDateStr,
+                main_category: mainCategoryVal,
+                company_entity: entityName,
+                expense_category: itemExpCat,
+              })
+              .select()
+              .single();
+
+            if (error) throw error;
+
+            const rate = getRateToINR(detectedCurrency, effectiveDate);
+            await supabase.from("audit_records").insert({
+              expense_id: inserted.id,
+              user_id: user.id,
+              bill_date: effectiveDateStr,
+              original_currency: detectedCurrency,
+              original_amount: item.amount,
+              exchange_rate_to_inr: rate,
+            });
+          }
+          successCount++;
+          continue;
+        }
+
+        // ── Standard single-item insert ──────────────────────────────────
         const { data: inserted, error } = await supabase
           .from("expenses")
           .insert({
@@ -628,7 +719,7 @@ function Dashboard() {
               }
             : undefined,
         },
-      });
+      }) as { vendor: string; amount: number; category: string; currency: string; description?: string; date?: string; company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; line_items?: { vendor: string; amount: number; description?: string }[]; debit_note_target?: string };
       const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
       const linkedBusiness =
         businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
@@ -656,6 +747,101 @@ function Dashboard() {
       const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
       const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
+      // ── Debit Note handling: add amount to the linked invoice ──────────
+      if (parsed.debit_note_target) {
+        const target = parsed.debit_note_target.toLowerCase();
+        const { data: linkedInvoices } = await supabase
+          .from("expenses")
+          .select("*")
+          .ilike("raw_text", `%${target}%`)
+          .limit(1);
+
+        if (linkedInvoices && linkedInvoices.length > 0) {
+          const linked = linkedInvoices[0];
+          const origAmt = Number(linked.amount) || 0;
+          const origDesc = linked.raw_text || "";
+
+          if (!origDesc.includes("[Debit Note")) {
+            let updatedDesc = origDesc;
+            const rateMatch = origDesc.match(/@\s*₹([\d,.]+)/);
+            if (rateMatch) {
+              const oldRate = parseFloat(rateMatch[1].replace(/,/g, ""));
+              // Extract quantity from debit note description to derive per-unit rate increase
+              const qtyMatch = (parsed.description || "").match(/Qty:\s*([\d,]+)/i);
+              const qty = qtyMatch ? parseInt(qtyMatch[1].replace(/,/g, ""), 10) : 1;
+              const gstMatch = (parsed.description || "").match(/GST:\s*₹([\d,]+)/i);
+              const gstAmt = gstMatch ? parseFloat(gstMatch[1].replace(/,/g, "")) : 0;
+              const baseDebitAmt = parsed.amount - gstAmt;
+              const rateIncrease = baseDebitAmt / qty;
+              const newRate = (oldRate + rateIncrease).toFixed(2);
+              updatedDesc = updatedDesc.replace(
+                `@ ₹${rateMatch[1]}`,
+                `@ ₹${newRate}`
+              );
+            }
+            updatedDesc += ` · [Debit Note +₹${parsed.amount.toLocaleString("en-IN")} rate difference applied]`;
+
+            await supabase
+              .from("expenses")
+              .update({ amount: origAmt + parsed.amount, raw_text: updatedDesc })
+              .eq("id", linked.id);
+
+            toast.success(`Debit Note (₹${parsed.amount.toLocaleString("en-IN")}) applied to linked invoice ${parsed.debit_note_target}!`);
+          } else {
+            toast.info(`Debit Note already applied to ${parsed.debit_note_target}.`);
+          }
+          setRawText("");
+          setAttachment(null);
+          loadExpenses();
+          return; // don't create a new standalone entry
+        }
+      }
+
+      // ── Multi-item invoice: insert each line item as a separate row ───
+      if (parsed.line_items && parsed.line_items.length > 0) {
+        for (const item of parsed.line_items) {
+          const itemExpCat = (item.description || "").toLowerCase().includes("raw material") ? "Raw material" : expenseCategory;
+          const { data: inserted, error } = await supabase
+            .from("expenses")
+            .insert({
+              amount: item.amount,
+              vendor: item.vendor || parsed.vendor,
+              category: parsed.category,
+              currency: detectedCurrency,
+              raw_text: item.description || parsed.description || `[${attachment?.kind ?? "attachment"}] ${attachment?.name ?? ""}`,
+              user_id: user.id,
+              business_id: linkedBusiness,
+              created_at: new Date().toISOString(),
+              date: effectiveDateStr,
+              main_category: mainCategoryVal,
+              company_entity: entityName,
+              expense_category: itemExpCat,
+            })
+            .select()
+            .single();
+          if (error) throw error;
+
+          const rate = getRateToINR(detectedCurrency, effectiveDate);
+          await supabase.from("audit_records").insert({
+            expense_id: inserted.id,
+            user_id: user.id,
+            bill_date: effectiveDateStr,
+            original_currency: detectedCurrency,
+            original_amount: item.amount,
+            exchange_rate_to_inr: rate,
+          });
+        }
+
+        toast.success(
+          `Logged ${parsed.line_items.length} items from ${parsed.vendor} — Total ${formatCurrency(parsed.amount, detectedCurrency)}`,
+        );
+        setRawText("");
+        setAttachment(null);
+        loadExpenses();
+        return;
+      }
+
+      // ── Standard single-item insert ──────────────────────────────────
       const { data: inserted, error } = await supabase
         .from("expenses")
         .insert({

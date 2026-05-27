@@ -23,6 +23,12 @@ const inputSchema = z
     message: "Provide text or an attachment",
   });
 
+type ParsedLineItem = {
+  vendor: string;
+  amount: number;
+  description?: string;
+};
+
 type ParsedExpense = {
   vendor: string;
   amount: number;
@@ -31,6 +37,8 @@ type ParsedExpense = {
   description?: string;
   date?: string; // YYYY-MM-DD invoice date from the bill
   company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; // business entity from the bill
+  line_items?: ParsedLineItem[]; // multiple raw materials on a single bill
+  debit_note_target?: string; // e.g. "RM_14" — tells the upload handler to add amount to linked invoice
 };
 
 const currencyAliases: Record<string, (typeof SUPPORTED_CURRENCIES)[number]> = {
@@ -52,6 +60,12 @@ const currencyAliases: Record<string, (typeof SUPPORTED_CURRENCIES)[number]> = {
   chf: "CHF",
 };
 
+const lineItemSchema = z.object({
+  vendor: z.coerce.string().trim().min(1),
+  amount: z.coerce.number().positive(),
+  description: z.string().optional(),
+});
+
 const expenseSchema = z.object({
   vendor: z.coerce.string().trim().min(1),
   amount: z.coerce.number().positive(),
@@ -66,6 +80,8 @@ const expenseSchema = z.object({
   description: z.string().optional(),
   date: z.string().optional(),
   company_entity: z.enum(["KS", "TI", "CPM", "AAS", "None"]).optional(),
+  line_items: z.array(lineItemSchema).optional(),
+  debit_note_target: z.string().optional(),
 });
 
 function normalizeCurrency(value: string, fallback: string): (typeof SUPPORTED_CURRENCIES)[number] {
@@ -183,9 +199,10 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   amount: 3990.00,
                   category: "Business",
                   currency: "INR",
-                  description: "Raw material · Inner Carton Rate Difference @ ₹0.20/box · Qty: 19000 Nos · GST: ₹190 · Linked to RM_14",
+                  description: "Raw material · Inner Carton Rate Difference @ ₹0.20/box · Qty: 19000 Nos · GST: ₹190 · Debit Note against Invoice No. 04",
                   date: "2026-04-04",
                   company_entity: "KS",
+                  debit_note_target: "RM_14",
                 };
               }
               
@@ -653,20 +670,22 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
       : createLovableAiGatewayProvider(apiKey);
     const model = gateway(isDirectGoogle ? "gemini-2.5-flash" : "google/gemini-2.5-flash");
 
-    const instructions = `You extract a single expense entry from the user's input. Default currency is ${data.defaultCurrency} (use it only when no other currency is mentioned). Recognise symbols like ₹ = INR, $ = USD, € = EUR, £ = GBP, ¥ = JPY. Infer Business vs Personal from context (office supplies, software, client meals = Business; groceries, entertainment, personal items = Personal). If an attachment is present (receipt image, bill PDF, or voice note), read it carefully to extract details. If both text and attachment are provided, prefer the attachment for amounts and use the text as additional context.
+    const instructions = `You extract expense entries from the user's input. Default currency is ${data.defaultCurrency} (use it only when no other currency is mentioned). Recognise symbols like ₹ = INR, $ = USD, € = EUR, £ = GBP, ¥ = JPY. Infer Business vs Personal from context (office supplies, software, client meals = Business; groceries, entertainment, personal items = Personal). If an attachment is present (receipt image, bill PDF, or voice note), read it carefully to extract details. If both text and attachment are provided, prefer the attachment for amounts and use the text as additional context.
 
 You can also extract these optional fields if found or implied in the input:
 - "date": Date in "YYYY-MM-DD" format.
-- "company_entity": One of "KS", "TI", "CPM", "AAS", or "None". Identify which internal business entity paid or is billed. If context clues suggest KS, TI, CPM, or AAS, use it; otherwise "None".
+- "company_entity": One of "KS", "TI", "CPM", "AAS", or "None". Identify which internal business entity paid or is billed. If the bill is addressed to "Kumaram Sports", use "KS". Otherwise use context clues; if unclear, use "None".
 - "description": A concise, structured description of the item or service.
   * CRITICAL: Extract "Quantity" (e.g., Qty: 20550 kg, Qty: 100 bags, Qty: 1 unit) and "GST" amount (sum of CGST + SGST or IGST, e.g., GST: ₹37,620) from the invoice if available. Append them clearly to the description using middle dots "·" as separators (e.g. "· Qty: 20550 kg · GST: ₹37,620"). If GST is not mentioned or is zero, append "· GST: ₹0".
   * CRITICAL FOR RAW MATERIALS: If the expense is for manufacturing raw materials, chemical ingredients, or packaging supplies (e.g., precipitated calcium carbonate, precipitated silica powder, packing/packaging boxes, chemicals, bulk plastic, etc.), identify the EXACT nature of the raw material (e.g., "Precipitated Calcium Carbonate") and its unit rate/price (e.g., "@ ₹12/kg", "@ ₹46/kg", "@ ₹3.96/box"). You MUST format the description field exactly as: "Raw material · [Nature] @ [Rate] · Qty: [Qty] [Unit] · GST: ₹[GST]" (e.g., "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 20551 kg · GST: ₹37,620"). If no rate is found, use "Raw material · [Nature] · Qty: [Qty] [Unit] · GST: ₹[GST]".
   * For Electricity and Water, specify the nature (e.g. "Factory Electricity · GST: ₹2,100" or "Industrial Water · GST: ₹0") in the description.
   * For Labour, specify the type (e.g. "Factory Floor Staff · GST: ₹0" or "Daily Wage Workers") in the description.
   * For other categories, formulate a clean description containing the parsed GST, e.g. "Repairs & Maintenance · Mechanical spares · GST: ₹540" or "Personal · Coffee and snacks · GST: ₹0".
+- "line_items": CRITICAL — If the invoice/bill contains MULTIPLE different raw materials or line items (e.g., 3 different chemicals on one vendor's bill), you MUST return a "line_items" array. Each line_item has {"vendor": string (same vendor), "amount": number (that line's amount INCLUSIVE of GST), "description": string (formatted per the raw material rules above)}. The top-level "amount" should be the grand total of the invoice. The top-level "description" should describe the first/primary item. Only include "line_items" when there are 2 or more distinct product lines on the same bill. Do NOT use line_items for single-item invoices.
+- "debit_note_target": If the document is a Debit Note or Credit Note referencing a specific invoice (e.g., "Against Invoice No. 04"), set this field to the invoice reference (e.g., "RM_14"). The upload system will automatically add this amount to the linked invoice.
 
 Respond with ONLY a single JSON object on one line, no markdown, no code fences, no commentary. Shape:
-{"vendor": string, "amount": number, "category": "Business" | "Personal", "currency": "INR" | "USD" | "EUR" | "GBP" | "JPY" | "AUD" | "CAD" | "SGD" | "AED" | "CHF", "date"?: string, "company_entity"?: "KS" | "TI" | "CPM" | "AAS" | "None", "description"?: string}`;
+{"vendor": string, "amount": number, "category": "Business" | "Personal", "currency": "INR" | "USD" | "EUR" | "GBP" | "JPY" | "AUD" | "CAD" | "SGD" | "AED" | "CHF", "date"?: string, "company_entity"?: "KS" | "TI" | "CPM" | "AAS" | "None", "description"?: string, "line_items"?: [{"vendor": string, "amount": number, "description": string}], "debit_note_target"?: string}`;
 
     const userParts: Array<
       | { type: "text"; text: string }
