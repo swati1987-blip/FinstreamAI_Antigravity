@@ -577,15 +577,15 @@ function RawMaterialsPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-[rgba(212,175,55,0.15)] bg-[rgba(212,175,55,0.02)] text-muted-foreground text-[10px] uppercase tracking-wider font-semibold">
-                    <th className="py-3.5 px-5">Date</th>
-                    <th className="py-3.5 px-5">Material Nature</th>
-                    <th className="py-3.5 px-5">Audited Rate</th>
-                    <th className="py-3.5 px-5">Supplier</th>
-                    <th className="py-3.5 px-5 text-right">GST</th>
-                    <th className="py-3.5 px-5 text-center">Entity</th>
-                    <th className="py-3.5 px-5 text-right">Est. Volume</th>
-                    <th className="py-3.5 px-5 text-right">Amount (Original)</th>
-                    <th className="py-3.5 px-5 text-right">Amount (INR)</th>
+                    <th className="py-3 px-2.5">Date</th>
+                    <th className="py-3 px-2.5">Material Nature</th>
+                    <th className="py-3 px-2.5">Audited Rate</th>
+                    <th className="py-3 px-2.5">Supplier</th>
+                    <th className="py-3 px-2.5 text-right">GST</th>
+                    <th className="py-3 px-2.5 text-center">Entity</th>
+                    <th className="py-3 px-2.5 text-right">Est. Volume</th>
+                    <th className="py-3 px-2.5 text-right">Amount (Original)</th>
+                    <th className="py-3 px-2.5 text-right">Amount (INR)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgba(212,175,55,0.08)]">
@@ -596,38 +596,38 @@ function RawMaterialsPage() {
                       className="hover:bg-[rgba(212,175,55,0.025)] transition-colors duration-150 cursor-pointer"
                     >
                       {/* Date */}
-                      <td className="py-4 px-5 whitespace-nowrap text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-[var(--primary)]/60" />
+                      <td className="py-3.5 px-2.5 whitespace-nowrap text-muted-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-[var(--primary)]/60 shrink-0" />
                           {format(record.invoiceDate, "dd-MMM-yy")}
                         </div>
                       </td>
 
                       {/* Material Nature */}
-                      <td className="py-4 px-5 font-semibold text-foreground max-w-[200px] truncate">
+                      <td className="py-3.5 px-2.5 font-semibold text-foreground max-w-[160px] whitespace-normal break-words">
                         {record.nature}
                       </td>
 
                       {/* Audited Rate */}
-                      <td className="py-4 px-5 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-[rgba(212,175,55,0.06)] text-[var(--primary)] border border-[rgba(212,175,55,0.15)]">
+                      <td className="py-3.5 px-2.5 whitespace-nowrap">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-[rgba(212,175,55,0.06)] text-[var(--primary)] border border-[rgba(212,175,55,0.15)]">
                           {record.rate}
                         </span>
                       </td>
 
                       {/* Supplier */}
-                      <td className="py-4 px-5 text-foreground max-w-[150px] truncate font-medium">
+                      <td className="py-3.5 px-2.5 text-foreground max-w-[120px] whitespace-normal break-words font-medium">
                         {cleanVendorName(record.vendor)}
                       </td>
 
                       {/* GST */}
-                      <td className="py-4 px-5 text-right font-mono text-foreground/80 whitespace-nowrap">
+                      <td className="py-3.5 px-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">
                         {record.gstNum !== null ? formatCurrency(record.gstNum, record.currency) : "—"}
                       </td>
 
                       {/* Entity */}
-                      <td className="py-4 px-5 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase ${
+                      <td className="py-3.5 px-2.5 text-center">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase ${
                           record.company_entity && record.company_entity !== "None"
                             ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] border border-[rgba(212,175,55,0.3)] shadow-sm"
                             : "bg-muted text-muted-foreground"
@@ -637,17 +637,17 @@ function RawMaterialsPage() {
                       </td>
 
                       {/* Est. Volume */}
-                      <td className="py-4 px-5 text-right font-mono text-foreground/85 whitespace-nowrap">
+                      <td className="py-3.5 px-2.5 text-right font-mono text-foreground/85 whitespace-nowrap">
                         {record.qtyStr || "—"}
                       </td>
 
                       {/* Amount Original */}
-                      <td className="py-4 px-5 text-right font-medium text-muted-foreground whitespace-nowrap">
+                      <td className="py-3.5 px-2.5 text-right font-medium text-muted-foreground whitespace-nowrap">
                         {formatCurrency(record.amount, record.currency)}
                       </td>
 
                       {/* Amount INR */}
-                      <td className="py-4 px-5 text-right font-bold text-foreground whitespace-nowrap">
+                      <td className="py-3.5 px-2.5 text-right font-bold text-foreground whitespace-nowrap">
                         {formatCurrency(record.amountInINR, "INR")}
                       </td>
                     </tr>

@@ -445,31 +445,35 @@ function IndirectCostPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-[rgba(212,175,55,0.15)] bg-[rgba(212,175,55,0.02)] text-muted-foreground text-[10px] uppercase tracking-wider font-semibold">
-                    <th className="py-3.5 px-5">Date</th>
-                    <th className="py-3.5 px-5">Vendor</th>
-                    <th className="py-3.5 px-5">Expense Details</th>
-                    <th className="py-3.5 px-5">Expense Category</th>
-                    <th className="py-3.5 px-5">Overhead Group</th>
-                    <th className="py-3.5 px-5 text-right">GST</th>
-                    <th className="py-3.5 px-5 text-center">Entity</th>
-                    <th className="py-3.5 px-5 text-right">Amount (Original)</th>
-                    <th className="py-3.5 px-5 text-right">Amount (INR)</th>
+                    <th className="py-3 px-2.5">Date</th>
+                    <th className="py-3 px-2.5">Vendor</th>
+                    <th className="py-3 px-2.5">Expense Details</th>
+                    <th className="py-3 px-2.5">Expense Category</th>
+                    <th className="py-3 px-2.5">Overhead Group</th>
+                    <th className="py-3 px-2.5 text-right">GST</th>
+                    <th className="py-3 px-2.5 text-center">Entity</th>
+                    <th className="py-3 px-2.5 text-right">Amount (Original)</th>
+                    <th className="py-3 px-2.5 text-right">Amount (INR)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgba(212,175,55,0.08)]">
                   {filteredRecords.map((record) => (
                     <tr key={record.id} onClick={() => void navigate({ to: "/transactions", search: { edit: record.id } })} className="hover:bg-[rgba(212,175,55,0.025)] transition-colors cursor-pointer">
-                      <td className="py-4 px-5 text-muted-foreground">
-                        <div className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" />{format(record.invoiceDate, "dd-MMM-yy")}</div>
+                      <td className="py-3 px-2.5 text-muted-foreground whitespace-nowrap">
+                        <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 shrink-0" />{format(record.invoiceDate, "dd-MMM-yy")}</div>
                       </td>
-                      <td className="py-4 px-5 font-medium text-foreground max-w-[150px] truncate">{cleanVendorName(record.vendor)}</td>
-                      <td className="py-4 px-5 text-muted-foreground text-[11px] max-w-[150px] truncate">{record.parsed.materialType || "—"}</td>
-                      <td className="py-4 px-5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[rgba(212,175,55,0.06)] border border-[rgba(212,175,55,0.15)]">{record.expense_category || "Other"}</span></td>
-                      <td className="py-4 px-5 font-medium">{record.overheadGroup}</td>
-                      <td className="py-4 px-5 text-right font-mono">{record.parsed.gstNum !== null ? formatCurrency(record.parsed.gstNum, record.currency) : "—"}</td>
-                      <td className="py-4 px-5 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-semibold bg-muted">{record.company_entity || "None"}</span></td>
-                      <td className="py-4 px-5 text-right font-medium text-muted-foreground">{formatCurrency(record.amount, record.currency)}</td>
-                      <td className="py-4 px-5 text-right font-bold text-foreground">{formatCurrency(record.amountInINR, "INR")}</td>
+                      <td className="py-3 px-2.5 font-medium text-foreground max-w-[120px] whitespace-normal break-words">{cleanVendorName(record.vendor)}</td>
+                      <td className="py-3 px-2.5 text-muted-foreground text-[11px] max-w-[160px] whitespace-normal break-words">{record.parsed.materialType || "—"}</td>
+                      <td className="py-3 px-2.5 max-w-[100px] whitespace-normal break-words">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[rgba(212,175,55,0.06)] border border-[rgba(212,175,55,0.15)] inline-block">{record.expense_category || "Other"}</span>
+                      </td>
+                      <td className="py-3 px-2.5 font-medium max-w-[100px] whitespace-normal break-words">{record.overheadGroup}</td>
+                      <td className="py-3 px-2.5 text-right font-mono whitespace-nowrap">{record.parsed.gstNum !== null ? formatCurrency(record.parsed.gstNum, record.currency) : "—"}</td>
+                      <td className="py-3 px-2.5 text-center">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-muted inline-block">{record.company_entity || "None"}</span>
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-medium text-muted-foreground whitespace-nowrap">{formatCurrency(record.amount, record.currency)}</td>
+                      <td className="py-3 px-2.5 text-right font-bold text-foreground whitespace-nowrap">{formatCurrency(record.amountInINR, "INR")}</td>
                     </tr>
                   ))}
                 </tbody>

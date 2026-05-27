@@ -573,16 +573,16 @@ function DirectCostPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-[rgba(212,175,55,0.15)] bg-[rgba(212,175,55,0.02)] text-muted-foreground text-[10px] uppercase tracking-wider font-semibold">
-                    <th className="py-3.5 px-5">Date</th>
-                    <th className="py-3.5 px-5">Vendor / Supplier</th>
-                    <th className="py-3.5 px-5">Material Details</th>
-                    <th className="py-3.5 px-5">Cost Category</th>
-                    <th className="py-3.5 px-5 text-right">Rate</th>
-                    <th className="py-3.5 px-5 text-right">Qty</th>
-                    <th className="py-3.5 px-5 text-right">GST</th>
-                    <th className="py-3.5 px-5 text-center">Entity</th>
-                    <th className="py-3.5 px-5 text-right">Amount (Original)</th>
-                    <th className="py-3.5 px-5 text-right">Amount (INR)</th>
+                    <th className="py-3 px-2.5">Date</th>
+                    <th className="py-3 px-2.5">Vendor / Supplier</th>
+                    <th className="py-3 px-2.5">Material Details</th>
+                    <th className="py-3 px-2.5">Cost Category</th>
+                    <th className="py-3 px-2.5 text-right">Rate</th>
+                    <th className="py-3 px-2.5 text-right">Qty</th>
+                    <th className="py-3 px-2.5 text-right">GST</th>
+                    <th className="py-3 px-2.5 text-center">Entity</th>
+                    <th className="py-3 px-2.5 text-right">Amount (Original)</th>
+                    <th className="py-3 px-2.5 text-right">Amount (INR)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgba(212,175,55,0.08)]">
@@ -592,32 +592,47 @@ function DirectCostPage() {
                       onClick={() => void navigate({ to: "/transactions", search: { edit: record.id } })}
                       className="hover:bg-[rgba(212,175,55,0.025)] transition-colors duration-150 cursor-pointer"
                     >
-                      <td className="py-4 px-5 whitespace-nowrap text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-[var(--primary)]/60" />
+                      {/* Date */}
+                      <td className="py-3.5 px-2.5 whitespace-nowrap text-muted-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-[var(--primary)]/60 shrink-0" />
                           {format(record.invoiceDate, "dd-MMM-yy")}
                         </div>
                       </td>
-                      <td className="py-4 px-5 font-medium text-foreground max-w-[130px] truncate">
+
+                      {/* Vendor */}
+                      <td className="py-3.5 px-2.5 font-medium text-foreground max-w-[110px] whitespace-normal break-words">
                         {cleanVendorName(record.vendor)}
                       </td>
-                      <td className="py-4 px-5 text-muted-foreground text-[11px] max-w-[150px] truncate" title={record.parsed.materialType || record.raw_text || ""}>
+
+                      {/* Material Details */}
+                      <td className="py-3.5 px-2.5 text-muted-foreground text-[11px] max-w-[160px] whitespace-normal break-words" title={record.parsed.materialType || record.raw_text || ""}>
                         {record.parsed.materialType || "—"}
                       </td>
-                      <td className="py-4 px-5 text-foreground text-xs font-semibold">
+
+                      {/* Cost Category */}
+                      <td className="py-3.5 px-2.5 text-foreground text-xs font-semibold max-w-[100px] whitespace-normal break-words">
                         {record.classified.category}
                       </td>
-                      <td className="py-4 px-5 text-right font-mono text-foreground/80 whitespace-nowrap">
+
+                      {/* Rate */}
+                      <td className="py-3.5 px-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">
                         {record.parsed.rateStr}
                       </td>
-                      <td className="py-4 px-5 text-right font-mono text-foreground/80 whitespace-nowrap">
+
+                      {/* Qty */}
+                      <td className="py-3.5 px-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">
                         {record.parsed.qtyStr}
                       </td>
-                      <td className="py-4 px-5 text-right font-mono text-foreground/80 whitespace-nowrap">
+
+                      {/* GST */}
+                      <td className="py-3.5 px-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">
                         {record.parsed.gstNum !== null ? formatCurrency(record.parsed.gstNum, record.currency) : "—"}
                       </td>
-                      <td className="py-4 px-5 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase ${
+
+                      {/* Entity */}
+                      <td className="py-3.5 px-2.5 text-center">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase ${
                           record.company_entity && record.company_entity !== "None"
                             ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] border border-[rgba(212,175,55,0.3)] shadow-sm"
                             : "bg-muted text-muted-foreground"
@@ -625,10 +640,14 @@ function DirectCostPage() {
                           {record.company_entity || "None"}
                         </span>
                       </td>
-                      <td className="py-4 px-5 text-right font-medium text-muted-foreground whitespace-nowrap">
+
+                      {/* Amount Original */}
+                      <td className="py-3.5 px-2.5 text-right font-medium text-muted-foreground whitespace-nowrap">
                         {formatCurrency(record.amount, record.currency)}
                       </td>
-                      <td className="py-4 px-5 text-right font-bold text-foreground whitespace-nowrap">
+
+                      {/* Amount INR */}
+                      <td className="py-3.5 px-2.5 text-right font-bold text-foreground whitespace-nowrap">
                         {formatCurrency(record.amountInINR, "INR")}
                       </td>
                     </tr>
