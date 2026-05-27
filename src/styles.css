@@ -219,57 +219,57 @@ a, button, select, input, textarea, [role='button'], .cursor-pointer, tr.cursor-
 }
 
 /* ==========================================================================
-   🌌 PREMIUM CYBER-NEON CLASS OVERRIDES (DEEP INDIGO-VAPOR "SYNTHETIC CASH")
+   🌌 PREMIUM CYBER-NEON CLASS OVERRIDES (OBSIDIAN BLUE & CYBER-AMBER "LUXURY COCKPIT")
    ========================================================================== */
 .neon-cyber {
-  --background: #090915; /* Deep Royal Purple-Black */
+  --background: #040711; /* Pure Obsidian Dark Void */
   --foreground: #F8FAFC;
-  --card: #14142B; /* Glowing Synth Card */
+  --card: #0D1121; /* Slate Instrument Panel Card */
   --card-foreground: #F8FAFC;
-  --popover: #14142B;
+  --popover: #0D1121;
   --popover-foreground: #F8FAFC;
   
-  --primary: #00E5FF; /* Royal Cyan Accent */
-  --primary-foreground: #090915;
+  --primary: #38BDF8; /* Electric Ice Blue */
+  --primary-foreground: #040711;
   
-  --secondary: #1E1B4B; /* Dark indigo */
+  --secondary: #0F172A; /* Dark Slate slate-900 */
   --secondary-foreground: #F8FAFC;
   
-  --muted: #1E1B4B;
+  --muted: #0F172A;
   --muted-foreground: #8A98B0;
   
-  --accent: #FF2A85; /* Cyber Neon Pink */
-  --accent-foreground: #FFFFFF;
+  --accent: #F59E0B; /* Cyber Lava Amber */
+  --accent-foreground: #040711;
   
-  --border: rgba(0, 229, 255, 0.25); /* Cyan border */
-  --input: rgba(0, 229, 255, 0.15);
-  --ring: #00E5FF;
+  --border: rgba(56, 189, 248, 0.22); /* Cyber Blue border */
+  --input: rgba(56, 189, 248, 0.12);
+  --ring: #38BDF8;
   
   /* Sidebar Customisation */
-  --sidebar: #090915;
+  --sidebar: #040711;
   --sidebar-foreground: #CBD5E1;
-  --sidebar-primary: #00E5FF;
-  --sidebar-primary-foreground: #090915;
-  --sidebar-accent: #251B45; /* Dark Purple-Indigo */
+  --sidebar-primary: #38BDF8;
+  --sidebar-primary-foreground: #040711;
+  --sidebar-accent: #111827; /* Slate-800 */
   --sidebar-accent-foreground: #F8FAFC;
-  --sidebar-border: rgba(0, 229, 255, 0.22);
-  --sidebar-ring: #00E5FF;
+  --sidebar-border: rgba(56, 189, 248, 0.18);
+  --sidebar-ring: #38BDF8;
   
-  --gradient-primary: linear-gradient(135deg, #00E5FF 0%, #FF2A85 100%); /* Cyan-to-Pink Synthwave gradient */
-  --shadow-luxury: 0 10px 40px -10px rgba(255, 42, 133, 0.15);
+  --gradient-primary: linear-gradient(135deg, #38BDF8 0%, #F59E0B 100%); /* Cyber blue-to-amber */
+  --shadow-luxury: 0 10px 40px -10px rgba(56, 189, 248, 0.12);
 
   /* Premium Luxury Fallbacks */
-  --midnight-navy: #14142B;
-  --rose-copper: #FF2A85; /* Neon Pink fallback */
-  --crystal-teal: #00E5FF; /* Royal Cyan fallback */
-  --crystal-teal-deep: #00B4CC;
+  --midnight-navy: #0D1121;
+  --rose-copper: #F59E0B; /* Amber fallback */
+  --crystal-teal: #38BDF8; /* Cyber Blue fallback */
+  --crystal-teal-deep: #0284C7;
   --marble-white: #F8FAFC;
 }
 
 /* Neon Glowing Active Filter Pills Style Override */
 .neon-cyber .inline-flex.items-center.px-2.5.py-0.5.rounded-full.text-xs.font-medium.bg-primary\/10.text-primary.border.border-primary\/30 {
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.35);
-  text-shadow: 0 0 4px rgba(0, 229, 255, 0.2);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+  text-shadow: 0 0 4px rgba(56, 189, 248, 0.2);
 }
 
 
