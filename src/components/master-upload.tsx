@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { UploadCloud, Loader2, FileText, X } from "lucide-react";
+import { UploadCloud, Loader2, FileText, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -784,33 +784,49 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
     >
       {/* Premium Glassmorphic Loader & Progress Bar Overlay */}
       {busy && (
-        <div className="absolute inset-0 bg-[var(--midnight-navy)]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 transition-all duration-300">
-          <div className="w-full max-w-xs space-y-4 text-center animate-fade-in">
-            <div className="relative w-14 h-14 mx-auto flex items-center justify-center">
-              <Loader2 className="w-10 h-10 animate-spin text-[var(--rose-copper)]" />
-              <div className="absolute inset-0 rounded-full border border-dashed border-[var(--rose-copper)]/30 animate-spin-reverse" style={{ animationDuration: '6s' }} />
+        <div className="absolute inset-0 bg-[#0B1124]/90 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 transition-all duration-300 border border-[rgba(212,175,55,0.25)] rounded-xl">
+          <div className="w-full max-w-xs space-y-6 text-center animate-fade-in">
+            
+            {/* Decorative Amber Glow & Dual Spinner System */}
+            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+              {/* Glowing Aura */}
+              <div className="absolute -inset-4 bg-[radial-gradient(circle,rgba(212,175,55,0.18)_0%,transparent_75%)] pointer-events-none blur-xl animate-pulse" />
+              
+              {/* Outer Counter-Rotating Dashed Dotted Ring */}
+              <div 
+                className="absolute inset-[-6px] rounded-full border border-dashed border-[rgba(212,175,55,0.3)] animate-spin" 
+                style={{ animationDuration: "12s", animationDirection: "reverse" }} 
+              />
+              
+              {/* Rotating Conic Ring */}
+              <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#D4AF37,#F9F3D9,#D4AF37)] animate-spin p-[1.5px] shadow-[0_0_15px_rgba(212,175,55,0.35)]">
+                {/* Inner Dark Mask */}
+                <div className="w-full h-full rounded-full bg-[#0C162F] flex items-center justify-center">
+                  <Sparkles className="w-6 h-6 text-[#F9F3D9] filter drop-shadow-[0_0_8px_rgba(212,175,55,0.85)] animate-pulse" />
+                </div>
+              </div>
             </div>
             
-            <div className="space-y-1">
-              <p className="text-sm font-semibold tracking-wide text-[var(--marble-white)] animate-pulse">
+            <div className="space-y-1.5">
+              <p className="text-[15px] font-semibold tracking-wide text-[#F9F3D9] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] animate-pulse">
                 {statusMessage}
               </p>
-              <p className="text-[10px] text-[var(--marble-white)]/60 font-mono truncate max-w-full">
+              <p className="text-[10px] text-[#8A98B0] font-mono font-medium tracking-wider uppercase truncate max-w-full">
                 Processing {fileName}
               </p>
             </div>
 
             {/* Smooth Animated Progress Bar */}
-            <div className="space-y-1.5">
-              <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-white/5">
+            <div className="space-y-2">
+              <div className="h-1.5 w-full bg-slate-950/80 rounded-full overflow-hidden border border-[rgba(212,175,55,0.15)] shadow-inner">
                 <div 
-                  className="h-full bg-gradient-to-r from-[var(--rose-copper)] to-[#F9F3D9] transition-all duration-500 ease-out rounded-full shadow-[0_0_8px_rgba(212,175,55,0.4)]"
+                  className="h-full bg-gradient-to-r from-[#9B7C2A] via-[#D4AF37] to-[#F9F3D9] transition-all duration-500 ease-out rounded-full shadow-[0_0_8px_rgba(212,175,55,0.6)]"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
-              <div className="flex justify-between text-[9px] text-[var(--marble-white)]/40 font-mono">
+              <div className="flex justify-between text-[9px] text-[#8A98B0]/80 font-mono tracking-widest uppercase px-0.5">
                 <span>0%</span>
-                <span>{progressPercent}%</span>
+                <span className="font-bold text-[#F9F3D9]">{progressPercent}%</span>
                 <span>100%</span>
               </div>
             </div>
