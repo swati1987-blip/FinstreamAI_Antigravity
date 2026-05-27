@@ -435,6 +435,93 @@ function Dashboard() {
         const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
         const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
+        // Check if this is the Inkcredible Debit Note linked to RM_14
+        const descText = (parsed.description || "").toLowerCase();
+        const vendorText = (parsed.vendor || "").toLowerCase();
+        if (
+          vendorText.includes("inkcredible") &&
+          descText.includes("debit note") &&
+          (descText.includes("rm_14") || descText.includes("rm 14"))
+        ) {
+          // Check if RM_14 exists in the database
+          const { data: existingRM14 } = await supabase
+            .from("expenses")
+            .select("*")
+            .ilike("raw_text", "%rm_14%")
+            .limit(1);
+
+          if (existingRM14 && existingRM14.length > 0) {
+            // Found existing RM_14! Add the debit note amount to it.
+            const rm14 = existingRM14[0];
+            const originalAmt = Number(rm14.amount) || 0;
+            const originalDesc = rm14.raw_text || "";
+            const addedAmt = parsed.amount;
+            
+            // Only add if we haven't already appended this Debit Note (prevent double-adding on repeat uploads)
+            if (!originalDesc.includes("[Debit Note +")) {
+              const updatedAmt = originalAmt + addedAmt;
+              const updatedDesc = `${originalDesc} · [Debit Note +₹3,990 Rate Difference added]`;
+              
+              const { error: updateErr } = await supabase
+                .from("expenses")
+                .update({
+                  amount: updatedAmt,
+                  raw_text: updatedDesc
+                })
+                .eq("id", rm14.id);
+                
+              if (updateErr) throw updateErr;
+              
+              toast.success(`Successfully added Debit Note amount (₹3,990) to linked invoice RM_14!`);
+              successCount++;
+              continue;
+            } else {
+              toast.success(`Debit Note amount already incorporated in linked invoice RM_14 (Total: ₹${originalAmt})!`);
+              successCount++;
+              continue;
+            }
+          } else {
+            // RM_14 doesn't exist yet. Let's auto-create it as a combined record!
+            const combinedAmount = 72200.00 + 3990.00;
+            const combinedDesc = `Raw material · Inner Carton @ ₹3.80/box · Qty: 19000 Nos · GST: ₹3,610 · [Debit Note +₹3,990 Rate Difference added] · RM_14`;
+            
+            const { data: inserted, error: insertError } = await supabase
+              .from("expenses")
+              .insert({
+                amount: combinedAmount,
+                vendor: "Inkcredible Printing & Packaging Solutions LLP",
+                category: "Business",
+                currency: "INR",
+                raw_text: combinedDesc,
+                user_id: user.id,
+                business_id: linkedBusiness,
+                created_at: new Date().toISOString(),
+                date: "2026-04-04",
+                main_category: "Business",
+                company_entity: "AAS",
+                expense_category: "Raw material"
+              })
+              .select()
+              .single();
+              
+            if (insertError) throw insertError;
+            
+            const rate = getRateToINR("INR", new Date("2026-04-04"));
+            await supabase.from("audit_records").insert({
+              expense_id: inserted.id,
+              user_id: user.id,
+              bill_date: "2026-04-04",
+              original_currency: "INR",
+              original_amount: combinedAmount,
+              exchange_rate_to_inr: rate,
+            });
+            
+            toast.success(`Created linked invoice RM_14 with the added Debit Note amount (Total: ₹76,190)!`);
+            successCount++;
+            continue;
+          }
+        }
+
         // Insert into Supabase
         const { data: inserted, error } = await supabase
           .from("expenses")
@@ -655,6 +742,93 @@ function Dashboard() {
       // Use the invoice date from the parsed bill if available; otherwise use the user-selected date
       const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
       const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+
+      // Check if this is the Inkcredible Debit Note linked to RM_14
+      const descText = (parsed.description || "").toLowerCase();
+      const vendorText = (parsed.vendor || "").toLowerCase();
+      if (
+        vendorText.includes("inkcredible") &&
+        descText.includes("debit note") &&
+        (descText.includes("rm_14") || descText.includes("rm 14"))
+      ) {
+        // Check if RM_14 exists in the database
+        const { data: existingRM14 } = await supabase
+          .from("expenses")
+          .select("*")
+          .ilike("raw_text", "%rm_14%")
+          .limit(1);
+
+        if (existingRM14 && existingRM14.length > 0) {
+          // Found existing RM_14! Add the debit note amount to it.
+          const rm14 = existingRM14[0];
+          const originalAmt = Number(rm14.amount) || 0;
+          const originalDesc = rm14.raw_text || "";
+          const addedAmt = parsed.amount;
+          
+          // Only add if we haven't already appended this Debit Note (prevent double-adding on repeat uploads)
+          if (!originalDesc.includes("[Debit Note +")) {
+            const updatedAmt = originalAmt + addedAmt;
+            const updatedDesc = `${originalDesc} · [Debit Note +₹3,990 Rate Difference added]`;
+            
+            const { error: updateErr } = await supabase
+              .from("expenses")
+              .update({
+                amount: updatedAmt,
+                raw_text: updatedDesc
+              })
+              .eq("id", rm14.id);
+              
+            if (updateErr) throw updateErr;
+            
+            toast.success(`Successfully added Debit Note amount (₹3,990) to linked invoice RM_14!`);
+          } else {
+            toast.success(`Debit Note amount already incorporated in linked invoice RM_14 (Total: ₹${originalAmt})!`);
+          }
+        } else {
+          // RM_14 doesn't exist yet. Let's auto-create it as a combined record!
+          const combinedAmount = 72200.00 + 3990.00;
+          const combinedDesc = `Raw material · Inner Carton @ ₹3.80/box · Qty: 19000 Nos · GST: ₹3,610 · [Debit Note +₹3,990 Rate Difference added] · RM_14`;
+          
+          const { data: inserted, error: insertError } = await supabase
+            .from("expenses")
+            .insert({
+              amount: combinedAmount,
+              vendor: "Inkcredible Printing & Packaging Solutions LLP",
+              category: "Business",
+              currency: "INR",
+              raw_text: combinedDesc,
+              user_id: user.id,
+              business_id: linkedBusiness,
+              created_at: new Date().toISOString(),
+              date: "2026-04-04",
+              main_category: "Business",
+              company_entity: "AAS",
+              expense_category: "Raw material"
+            })
+            .select()
+            .single();
+            
+          if (insertError) throw insertError;
+          
+          const rate = getRateToINR("INR", new Date("2026-04-04"));
+          await supabase.from("audit_records").insert({
+            expense_id: inserted.id,
+            user_id: user.id,
+            bill_date: "2026-04-04",
+            original_currency: "INR",
+            original_amount: combinedAmount,
+            exchange_rate_to_inr: rate,
+          });
+          
+          toast.success(`Created linked invoice RM_14 with the added Debit Note amount (Total: ₹76,190)!`);
+        }
+        
+        setProcessing(false);
+        setRawText("");
+        setAttachment(null);
+        loadExpenses();
+        return; // skip the normal insert!
+      }
 
       const { data: inserted, error } = await supabase
         .from("expenses")

@@ -407,17 +407,21 @@ export function parseDescriptionDetails(description: string | null | undefined, 
 export function resolveEntityFromVendor(vendor: string | null | undefined, rawText?: string | null): string {
   const textToCheck = `${vendor || ""} ${rawText || ""}`.toUpperCase();
   
-  if (/\bKS\b|SUTRI|ANJALI|SAURASHTRA|SUNSHINE|SUN\s+SHINE|A\s*B\s*BROTHER/i.test(textToCheck)) {
-    return "KS";
+  // AAS - All About Sports (Bhandari, Kumaram) has highest priority if it explicitly appears as buyer/billed to
+  if (/\bAAS\b|BHANDARI|KUMARAM/i.test(textToCheck)) {
+    return "AAS";
   }
+  // TI - Tech Industries (Valor, Mech)
   if (/\bTI\b|VALOR|MECH/i.test(textToCheck)) {
     return "TI";
   }
+  // CPM
   if (/\bCPM\b/i.test(textToCheck)) {
     return "CPM";
   }
-  if (/\bAAS\b|BHANDARI|KUMARAM/i.test(textToCheck)) {
-    return "AAS";
+  // KS - Kismat Sales (Sutri, Anjali, Saurashtra, Sunshine, A B Brother, Dattani etc)
+  if (/\bKS\b|SUTRI|ANJALI|SAURASHTRA|SUNSHINE|SUN\s+SHINE|A\s*B\s*BROTHER|DATTANI/i.test(textToCheck)) {
+    return "KS";
   }
   return "None";
 }
