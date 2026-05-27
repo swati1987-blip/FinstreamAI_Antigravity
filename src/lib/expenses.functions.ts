@@ -173,7 +173,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   currency: "INR",
                   description: "Raw material · VULKACIT CZ/C @ ₹420/KGS · Qty: 200.000 KGS · GST: ₹15,120",
                   date: "2026-04-01",
-                  company_entity: "AAS",
+                  company_entity: "KS",
                 };
               }
               
@@ -183,9 +183,9 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   amount: 3990.00,
                   category: "Business",
                   currency: "INR",
-                  description: "Debit Note raised for rate difference (Inner Carton) · GST: ₹190 · Linked: RM_14",
+                  description: "Raw material · Inner Carton Rate Difference @ ₹0.20/box · Qty: 19000 Nos · GST: ₹190 · Linked to RM_14",
                   date: "2026-04-04",
-                  company_entity: "AAS",
+                  company_entity: "KS",
                 };
               }
               
@@ -197,7 +197,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                   currency: "INR",
                   description: "Raw material · CHALK POWDER 40KG OFF-WHITE GRADE @ ₹4600 · Qty: 29.500 · GST: ₹6,785",
                   date: "2026-04-04",
-                  company_entity: "AAS",
+                  company_entity: "KS",
                 };
               }
 
@@ -548,12 +548,12 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
           if (lowerName.includes("rm_14") || lowerName.includes("rm 14")) {
             return {
               vendor: "Inkcredible Printing & Packaging Solutions LLP",
-              amount: 72200.00,
+              amount: 75810.00,
               category: "Business",
               currency: "INR",
               description: "Raw material · Inner Carton @ ₹3.80/box · Qty: 19000 Nos · GST: ₹3,610 · RM_14",
               date: "2026-04-04",
-              company_entity: "AAS",
+              company_entity: "KS",
             };
           }
 
@@ -769,12 +769,12 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
         if (n.includes("rm_14") || n.includes("rm 14")) {
           return {
             vendor: "Inkcredible Printing & Packaging Solutions LLP",
-            amount: 72200.00,
+            amount: 75810.00,
             category: "Business" as const,
             currency: "INR" as const,
             description: "Raw material · Inner Carton @ ₹3.80/box · Qty: 19000 Nos · GST: ₹3,610 · RM_14",
             date: "2026-04-04",
-            company_entity: "AAS" as const,
+            company_entity: "KS" as const,
           };
         }
         if (n.includes("kiara") || n.includes("tech") || n.includes("printing")) {
