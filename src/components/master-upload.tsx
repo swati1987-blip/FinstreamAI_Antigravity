@@ -3,7 +3,7 @@ import { UploadCloud, Loader2, FileText, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { cn, cleanVendorName } from "@/lib/utils";
+import { cn, cleanVendorName, resolveEntityFromVendor } from "@/lib/utils";
 
 const WEBHOOK_URL =
   "https://hook.eu1.make.com/gluqiwaidwi3telj1tjdl3byreiguxc9";
@@ -446,17 +446,26 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
             }
           }
 
+          const rawDescription = r.description ?? "";
           let entity = "None";
           const cat = r.category === "Personal" ? "Personal" : "Business";
-          if (cat === "Business" && r.entity) {
-            const entUpper = r.entity.trim().toUpperCase();
-            if (["KS", "TI", "CPM", "AAS"].includes(entUpper)) {
-              entity = entUpper;
+          const rawEntity = r.entity || (r as any).company_entity || (r as any).companyEntity || (r as any).business_id;
+          
+          if (cat === "Business") {
+            if (rawEntity) {
+              const entUpper = String(rawEntity).trim().toUpperCase();
+              if (["KS", "TI", "CPM", "AAS"].includes(entUpper)) {
+                entity = entUpper;
+              }
+            }
+            
+            // If the entity is still None, let's smart-infer it from the vendor/description/file
+            if (entity === "None") {
+              entity = resolveEntityFromVendor(String(rawVendor), `${rawDescription} ${file.name} ${text}`);
             }
           }
 
           // Map description or categorize
-          const rawDescription = r.description ?? "";
           let expCategory = "Other expenses";
           const EXPENSE_CATEGORIES_LOWER = [
             "advertisement", "admin costs", "business promotion", "courier/transportation",

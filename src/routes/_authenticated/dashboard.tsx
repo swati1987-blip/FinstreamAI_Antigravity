@@ -50,7 +50,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
@@ -1261,7 +1261,11 @@ function Dashboard() {
                       }
 
                       const displayMainCategory = e.main_category || e.category || "Personal";
-                      const displayCompanyEntity = e.company_entity || "None";
+                      
+                      let displayCompanyEntity = e.company_entity || "None";
+                      if (displayCompanyEntity === "None" || displayCompanyEntity === "NONE") {
+                        displayCompanyEntity = resolveEntityFromVendor(e.vendor, e.raw_text);
+                      }
                       
                       let displayExpenseCategory = e.expense_category || "Other expenses";
                       if (!e.expense_category && e.raw_text) {

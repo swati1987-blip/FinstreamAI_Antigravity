@@ -404,4 +404,22 @@ export function parseDescriptionDetails(description: string | null | undefined, 
   };
 }
 
+export function resolveEntityFromVendor(vendor: string | null | undefined, rawText?: string | null): string {
+  const textToCheck = `${vendor || ""} ${rawText || ""}`.toUpperCase();
+  
+  if (/\bKS\b|SUTRI|ANJALI|SAURASHTRA|SUNSHINE|SUN\s+SHINE|A\s*B\s*BROTHER/i.test(textToCheck)) {
+    return "KS";
+  }
+  if (/\bTI\b|VALOR|MECH/i.test(textToCheck)) {
+    return "TI";
+  }
+  if (/\bCPM\b/i.test(textToCheck)) {
+    return "CPM";
+  }
+  if (/\bAAS\b|BHANDARI|KUMARAM/i.test(textToCheck)) {
+    return "AAS";
+  }
+  return "None";
+}
+
 

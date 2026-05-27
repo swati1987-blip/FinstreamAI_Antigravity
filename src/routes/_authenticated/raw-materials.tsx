@@ -23,7 +23,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrency } from "@/hooks/use-currency";
 import { formatCurrency } from "@/lib/currency";
 import { getRateToINR } from "@/lib/fx";
-import { cleanVendorName, parseDescriptionDetails } from "@/lib/utils";
+import { cleanVendorName, parseDescriptionDetails, resolveEntityFromVendor } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -148,8 +148,14 @@ function RawMaterialsPage() {
       const fxRate = getRateToINR(item.currency, invoiceDate);
       const amountInINR = item.amount * fxRate;
 
+      let companyEntity = item.company_entity || "None";
+      if (companyEntity === "None" || companyEntity === "NONE") {
+        companyEntity = resolveEntityFromVendor(item.vendor, item.raw_text);
+      }
+
       return {
         ...item,
+        company_entity: companyEntity,
         nature: parsed.materialType || "Raw Material",
         rate: parsed.rateStr,
         pureRateNum: parsed.rateNum ?? 0,

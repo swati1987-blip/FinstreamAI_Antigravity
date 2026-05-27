@@ -26,7 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrency } from "@/hooks/use-currency";
 import { formatCurrency } from "@/lib/currency";
 import { getRateToINR } from "@/lib/fx";
-import { cleanVendorName, classifyExpense, parseDescriptionDetails } from "@/lib/utils";
+import { cleanVendorName, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -107,8 +107,14 @@ function DirectCostPage() {
         const amountInINR = item.amount * fxRate;
         const parsed = parseDescriptionDetails(item.raw_text, Number(item.amount) || 0);
 
+        let companyEntity = item.company_entity || "None";
+        if (companyEntity === "None" || companyEntity === "NONE") {
+          companyEntity = resolveEntityFromVendor(item.vendor, item.raw_text);
+        }
+
         return {
           ...item,
+          company_entity: companyEntity,
           classified,
           amountInINR,
           invoiceDate,

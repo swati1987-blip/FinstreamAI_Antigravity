@@ -24,7 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrency } from "@/hooks/use-currency";
 import { formatCurrency } from "@/lib/currency";
 import { getRateToINR } from "@/lib/fx";
-import { cleanVendorName, cn, parseDescriptionDetails } from "@/lib/utils";
+import { cleanVendorName, cn, parseDescriptionDetails, resolveEntityFromVendor } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -150,8 +150,14 @@ function IndirectCostPage() {
       
       const parsed = parseDescriptionDetails(item.raw_text, Number(item.amount) || 0);
 
+      let companyEntity = item.company_entity || "None";
+      if (companyEntity === "None" || companyEntity === "NONE") {
+        companyEntity = resolveEntityFromVendor(item.vendor, item.raw_text);
+      }
+
       return {
         ...item,
+        company_entity: companyEntity,
         amountInINR,
         invoiceDate,
         overheadGroup,

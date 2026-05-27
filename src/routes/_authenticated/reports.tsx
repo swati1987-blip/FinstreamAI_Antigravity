@@ -51,7 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn, classifyExpense, parseDescriptionDetails } from "@/lib/utils";
+import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/reports")({
   component: ReportsPage,
@@ -192,7 +192,19 @@ function ReportsPage() {
           .select(
             "amount,currency,category,created_at,date,expense_category,vendor,raw_text,company_entity,main_category"
           );
-        setRows((data ?? []) as Row[]);
+        
+        const enriched = (data ?? []).map((r) => {
+          let ent = r.company_entity;
+          if (!ent || ent === "None" || ent === "NONE") {
+            ent = resolveEntityFromVendor(r.vendor, r.raw_text);
+          }
+          return {
+            ...r,
+            company_entity: ent,
+          };
+        });
+
+        setRows(enriched as Row[]);
       } catch (err) {
         console.error("Error loading expenses for reports:", err);
       } finally {
