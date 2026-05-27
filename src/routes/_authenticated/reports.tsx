@@ -17,6 +17,7 @@ import {
   Building2,
   Target,
   Download,
+  Scale,
 } from "lucide-react";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { CurrencySwitcher } from "@/components/currency-switcher";
@@ -50,7 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, classifyExpense, parseDescriptionDetails } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/reports")({
   component: ReportsPage,
@@ -126,6 +127,9 @@ function ReportsPage() {
   const [selectedCompareCategories, setSelectedCompareCategories] = useState<string[]>([]);
   const [budgetInterval, setBudgetInterval] = useState<"Monthly" | "Quarterly" | "Yearly">("Monthly");
   const [showAllBudgets, setShowAllBudgets] = useState(false);
+  const [selectedCostEntities, setSelectedCostEntities] = useState<string[]>([]);
+  const [expandedDirectGroup, setExpandedDirectGroup] = useState<string | null>(null);
+  const [expandedIndirectGroup, setExpandedIndirectGroup] = useState<string | null>(null);
 
   // Dynamic Budget Tracking States
   const [trackedCategories, setTrackedCategories] = useState<string[]>([
@@ -218,15 +222,138 @@ function ReportsPage() {
 
   const summary = useMemo(() => {
     let total = 0, business = 0, personal = 0, investments = 0;
+    let directSpend = 0, indirectSpend = 0;
     for (const r of filteredRows) {
       const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
       total += amt;
-      if (r.category === "Business") business += amt;
+      if (r.category === "Business") {
+        business += amt;
+        const classified = classifyExpense({
+          category: r.category,
+          main_category: r.main_category,
+          expense_category: r.expense_category,
+          raw_text: r.raw_text,
+          vendor: r.vendor,
+        });
+        if (classified.type === "Direct") {
+          directSpend += amt;
+        } else if (classified.type === "Indirect") {
+          indirectSpend += amt;
+        }
+      }
       else if (r.category === "Investments") investments += amt;
       else personal += amt;
     }
-    return { total, business, personal, investments, count: filteredRows.length };
+    return { total, business, personal, investments, directSpend, indirectSpend, count: filteredRows.length };
   }, [filteredRows, displayCurrency]);
+
+  // ── Cost entity-filtered rows ─────────────────────────────────────────────
+  const costFilteredRows = useMemo(() => {
+    if (selectedCostEntities.length === 0) return filteredRows;
+    return filteredRows.filter(r => {
+      const ent = (r.company_entity || "None").toUpperCase();
+      return selectedCostEntities.map(e => e.toUpperCase()).includes(ent);
+    });
+  }, [filteredRows, selectedCostEntities]);
+
+  // Direct cost grouped breakdown (by category → list of entries)
+  const directBreakdown = useMemo(() => {
+    const groups: Record<string, Array<{
+      vendor: string;
+      materialType: string;
+      rateStr: string;
+      qty: string;
+      gstStr: string;
+      amount: number;
+      rawDescription: string;
+    }>> = {};
+
+    for (const r of costFilteredRows) {
+      if (r.category !== "Business") continue;
+      const classified = classifyExpense({
+        category: r.category,
+        main_category: r.main_category,
+        expense_category: r.expense_category,
+        raw_text: r.raw_text,
+        vendor: r.vendor,
+      });
+      if (classified.type !== "Direct") continue;
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      
+      const parsed = parseDescriptionDetails(r.raw_text, Number(r.amount) || 0);
+      let displayGstStr = "—";
+      if (parsed.gstNum !== null) {
+        const convertedGst = convertAmount(parsed.gstNum, r.currency || "INR", displayCurrency, r.created_at);
+        displayGstStr = formatCurrency(convertedGst, displayCurrency);
+      }
+
+      const groupKey = r.expense_category || classified.category || "Other";
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push({
+        vendor: r.vendor || "Unknown",
+        materialType: parsed.materialType || (r.expense_category || classified.category),
+        rateStr: parsed.rateStr,
+        qty: parsed.qtyStr,
+        gstStr: displayGstStr,
+        amount: amt,
+        rawDescription: r.raw_text || "",
+      });
+    }
+    return Object.entries(groups).map(([cat, entries]) => ({
+      category: cat,
+      total: entries.reduce((s, e) => s + e.amount, 0),
+      entries,
+    })).sort((a, b) => b.total - a.total);
+  }, [costFilteredRows, displayCurrency]);
+
+  // Indirect cost grouped breakdown
+  const indirectBreakdown = useMemo(() => {
+    const groups: Record<string, Array<{ vendor: string; description: string; amount: number }>> = {};
+    for (const r of costFilteredRows) {
+      if (r.category !== "Business") continue;
+      const classified = classifyExpense({
+        category: r.category,
+        main_category: r.main_category,
+        expense_category: r.expense_category,
+        raw_text: r.raw_text,
+        vendor: r.vendor,
+      });
+      if (classified.type !== "Indirect") continue;
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      const groupKey = r.expense_category || classified.category || "Other";
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push({
+        vendor: r.vendor || "Unknown",
+        description: r.raw_text || "",
+        amount: amt,
+      });
+    }
+    return Object.entries(groups).map(([cat, entries]) => ({
+      category: cat,
+      total: entries.reduce((s, e) => s + e.amount, 0),
+      entries,
+    })).sort((a, b) => b.total - a.total);
+  }, [costFilteredRows, displayCurrency]);
+
+  // Entity-filtered summary for cost ratio (used in the ratio bar & benchmark)
+  const costSummary = useMemo(() => {
+    let business = 0, directSpend = 0, indirectSpend = 0;
+    for (const r of costFilteredRows) {
+      if (r.category !== "Business") continue;
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      business += amt;
+      const classified = classifyExpense({
+        category: r.category,
+        main_category: r.main_category,
+        expense_category: r.expense_category,
+        raw_text: r.raw_text,
+        vendor: r.vendor,
+      });
+      if (classified.type === "Direct") directSpend += amt;
+      else if (classified.type === "Indirect") indirectSpend += amt;
+    }
+    return { business, directSpend, indirectSpend };
+  }, [costFilteredRows, displayCurrency]);
 
   // ── Distribution datasets ───────────────────────────────────────────────
   const categoryData = useMemo(() => {
@@ -869,6 +996,279 @@ function ReportsPage() {
                 <StatCard label="Investments"     value={summary.investments} currency={displayCurrency}        icon={<DollarSign   className="w-4.5 h-4.5 text-emerald-500" />} />
               </div>
 
+              {/* Direct vs Indirect Ratio Card — Full Detail */}
+              <div className="card-luxury rounded-2xl border border-border bg-card p-6 space-y-5">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Scale className="w-5 h-5 text-[var(--primary)]" />
+                    <h3 className="text-sm font-bold tracking-tight text-foreground uppercase">
+                      Direct vs Indirect Cost Ratio
+                    </h3>
+                  </div>
+                  {/* Entity filter pills */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1">Entities:</span>
+                    
+                    {/* All Pill */}
+                    <button
+                      onClick={() => { 
+                        setSelectedCostEntities([]); 
+                        setExpandedDirectGroup(null); 
+                        setExpandedIndirectGroup(null); 
+                      }}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all border",
+                        selectedCostEntities.length === 0
+                          ? "bg-primary text-primary-foreground border-primary shadow-[0_2px_8px_rgba(212,175,55,0.3)]"
+                          : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                      )}
+                    >
+                      All
+                    </button>
+
+                    {/* KS, TI, CPM, AAS Pills */}
+                    {["KS", "TI", "CPM", "AAS"].map((ent) => {
+                      const isSelected = selectedCostEntities.includes(ent);
+                      return (
+                        <button
+                          key={ent}
+                          onClick={() => { 
+                            setSelectedCostEntities(prev => {
+                              const next = prev.includes(ent) 
+                                ? prev.filter(e => e !== ent) 
+                                : [...prev, ent];
+                              return next;
+                            });
+                            setExpandedDirectGroup(null); 
+                            setExpandedIndirectGroup(null); 
+                          }}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all border",
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary shadow-[0_2px_8px_rgba(212,175,55,0.3)]"
+                              : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                          )}
+                        >
+                          {ent}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Top row: totals + benchmark */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Direct Total */}
+                  <div className="p-4 rounded-xl border border-[rgba(212,175,55,0.2)] bg-[rgba(212,175,55,0.02)] flex flex-col justify-between">
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground">Direct Production Cost</span>
+                    <div className="text-2xl font-black text-foreground mt-1">
+                      {formatCurrency(costSummary.directSpend, displayCurrency)}
+                    </div>
+                    <div className="text-xs font-semibold text-[var(--primary)] mt-1">
+                      {costSummary.business > 0 ? ((costSummary.directSpend / costSummary.business) * 100).toFixed(1) : "0.0"}% of business spend
+                    </div>
+                  </div>
+
+                  {/* Indirect Total */}
+                  <div className={`p-4 rounded-xl border flex flex-col justify-between ${
+                    (costSummary.business > 0 && (costSummary.indirectSpend / costSummary.business) * 100 > 40.0)
+                      ? "border-red-500/30 bg-red-500/[0.015]"
+                      : "border-border bg-card"
+                  }`}>
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground">Indirect Cost (Overhead)</span>
+                    <div className="text-2xl font-black text-foreground mt-1">
+                      {formatCurrency(costSummary.indirectSpend, displayCurrency)}
+                    </div>
+                    <div className={`text-xs font-semibold mt-1 ${
+                      (costSummary.business > 0 && (costSummary.indirectSpend / costSummary.business) * 100 > 40.0)
+                        ? "text-red-400" : "text-muted-foreground"
+                    }`}>
+                      {costSummary.business > 0 ? ((costSummary.indirectSpend / costSummary.business) * 100).toFixed(1) : "0.0"}% of business spend
+                    </div>
+                  </div>
+
+                  {/* Benchmark */}
+                  <div className="flex flex-col justify-center">
+                    {(() => {
+                      const directRatio = costSummary.business > 0 ? (costSummary.directSpend / costSummary.business) * 100 : 0;
+                      const indirectRatio = costSummary.business > 0 ? (costSummary.indirectSpend / costSummary.business) * 100 : 0;
+                      if (costSummary.business === 0) return <div className="text-xs text-muted-foreground">No business transactions{selectedCostEntities.length > 0 ? ` for entity ${selectedCostEntities.join(", ")}` : ""} in this period.</div>;
+                      const isHealthy = directRatio >= 60.0 && directRatio <= 70.0;
+                      const isIndirectHigh = indirectRatio > 40.0;
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`h-2.5 w-2.5 rounded-full ${isHealthy ? "bg-emerald-500 animate-pulse" : isIndirectHigh ? "bg-red-500 animate-pulse" : "bg-amber-500 animate-pulse"}`} />
+                            <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                              {isHealthy ? "Optimal Ratio" : isIndirectHigh ? "🚨 High Overheads Flagged" : "Sub-Optimal Ratio"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-muted-foreground">
+                            {isHealthy
+                              ? "Excellent! Your Direct Costs are aligned with the 60-70% manufacturing benchmark."
+                              : isIndirectHigh
+                              ? "Warning: Indirect overhead costs exceed 40% of business spend."
+                              : `Direct Production Outflow stands at ${directRatio.toFixed(0)}%. Target: 60-70%.`}
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Ratio bar */}
+                {costSummary.business > 0 && (
+                  <div className="space-y-1.5 pt-1 border-t border-[rgba(212,175,55,0.08)]">
+                    <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase">
+                      <span>Direct: {((costSummary.directSpend / costSummary.business) * 100).toFixed(0)}%</span>
+                      <span>Indirect: {((costSummary.indirectSpend / costSummary.business) * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
+                      <div className="h-full bg-gradient-to-r from-[rgba(212,175,55,0.7)] to-[var(--primary)]" style={{ width: `${(costSummary.directSpend / costSummary.business) * 100}%` }} />
+                      <div className="h-full bg-muted-foreground/30" style={{ width: `${(costSummary.indirectSpend / costSummary.business) * 100}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── DIRECT COST BREAKDOWN ── */}
+                {directBreakdown.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-[rgba(212,175,55,0.08)]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--primary)]">Direct Cost Breakdown</span>
+                    </div>
+                    {directBreakdown.map((group) => (
+                      <div key={group.category} className="rounded-lg border border-[rgba(212,175,55,0.12)] overflow-hidden">
+                        {/* Group header — clickable to expand */}
+                        <button
+                          onClick={() => setExpandedDirectGroup(expandedDirectGroup === group.category ? null : group.category)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 bg-[rgba(212,175,55,0.04)] hover:bg-[rgba(212,175,55,0.08)] transition-colors text-left"
+                        >
+                          <span className="text-xs font-bold text-foreground">{group.category}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-black text-[var(--primary)] tabular-nums">{formatCurrency(group.total, displayCurrency)}</span>
+                            <span className="text-[10px] text-muted-foreground">{group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}</span>
+                            <span className="text-muted-foreground text-xs">{expandedDirectGroup === group.category ? "▲" : "▼"}</span>
+                          </div>
+                        </button>
+
+                        {/* Expanded rows */}
+                        {expandedDirectGroup === group.category && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  <th className="px-3 py-2 text-left font-bold">Vendor</th>
+                                  <th className="px-3 py-2 text-left font-bold">Material / Description</th>
+                                  <th className="px-3 py-2 text-right font-bold">Rate</th>
+                                  <th className="px-3 py-2 text-right font-bold">Qty</th>
+                                  <th className="px-3 py-2 text-right font-bold">GST</th>
+                                  <th className="px-3 py-2 text-right font-bold">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {group.entries.map((entry, idx) => (
+                                  <tr key={idx} className="border-t border-border/50 hover:bg-muted/20 transition-colors">
+                                    <td className="px-3 py-2.5 font-semibold text-foreground max-w-[160px]">
+                                      <span className="truncate block" title={entry.vendor}>{entry.vendor}</span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-muted-foreground max-w-[200px]">
+                                      <span className="truncate block" title={entry.materialType}>{entry.materialType || "—"}</span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">{entry.rateStr}</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">{entry.qty}</td>
+                                    <td className="px-3 py-2.5 text-right font-mono text-foreground/80 whitespace-nowrap">{entry.gstStr}</td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums whitespace-nowrap">
+                                      {formatCurrency(entry.amount, displayCurrency)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="border-t border-[rgba(212,175,55,0.2)] bg-[rgba(212,175,55,0.04)]">
+                                  <td colSpan={5} className="px-3 py-2 text-xs font-bold text-[var(--primary)] uppercase tracking-wide">Subtotal</td>
+                                  <td className="px-3 py-2 text-right font-black text-[var(--primary)] tabular-nums whitespace-nowrap">
+                                    {formatCurrency(group.total, displayCurrency)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── INDIRECT COST BREAKDOWN ── */}
+                {indirectBreakdown.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-border/40">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/50" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Indirect Cost Breakdown</span>
+                    </div>
+                    {indirectBreakdown.map((group) => (
+                      <div key={group.category} className="rounded-lg border border-border overflow-hidden">
+                        <button
+                          onClick={() => setExpandedIndirectGroup(expandedIndirectGroup === group.category ? null : group.category)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left"
+                        >
+                          <span className="text-xs font-bold text-foreground">{group.category}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-black text-foreground tabular-nums">{formatCurrency(group.total, displayCurrency)}</span>
+                            <span className="text-[10px] text-muted-foreground">{group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}</span>
+                            <span className="text-muted-foreground text-xs">{expandedIndirectGroup === group.category ? "▲" : "▼"}</span>
+                          </div>
+                        </button>
+                        {expandedIndirectGroup === group.category && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  <th className="px-3 py-2 text-left font-bold">Vendor</th>
+                                  <th className="px-3 py-2 text-left font-bold">Description</th>
+                                  <th className="px-3 py-2 text-right font-bold">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {group.entries.map((entry, idx) => (
+                                  <tr key={idx} className="border-t border-border/50 hover:bg-muted/20 transition-colors">
+                                    <td className="px-3 py-2.5 font-semibold text-foreground max-w-[180px]">
+                                      <span className="truncate block" title={entry.vendor}>{entry.vendor}</span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-muted-foreground max-w-[250px]">
+                                      <span className="truncate block" title={entry.description}>{entry.description || "—"}</span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums whitespace-nowrap">
+                                      {formatCurrency(entry.amount, displayCurrency)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="border-t border-border bg-muted/20">
+                                  <td colSpan={2} className="px-3 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wide">Subtotal</td>
+                                  <td className="px-3 py-2 text-right font-black text-foreground tabular-nums whitespace-nowrap">
+                                    {formatCurrency(group.total, displayCurrency)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {directBreakdown.length === 0 && indirectBreakdown.length === 0 && costSummary.business === 0 && (
+                  <div className="text-center py-6 text-muted-foreground text-sm">
+                    No business transactions found{selectedCostEntities.length > 0 ? ` for entity: ${selectedCostEntities.join(", ")}` : ""} in this period.
+                  </div>
+                )}
+              </div>
 
               {/* ══ 4. ANOMALY CALLOUT CARDS ═════════════════════════ */}
               <div className="grid gap-4 md:grid-cols-3">

@@ -23,9 +23,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrency } from "@/hooks/use-currency";
 import { formatCurrency } from "@/lib/currency";
 import { getRateToINR } from "@/lib/fx";
-import { cleanVendorName } from "@/lib/utils";
+import { cleanVendorName, parseDescriptionDetails } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/raw-materials")({
   component: RawMaterialsPage,
@@ -97,10 +98,10 @@ function RawMaterialsPage() {
   const { user } = useAuth();
   const { currency: displayCurrency } = useCurrency();
   const navigate = useNavigate();
-  const [items, setItems] = useState<Expense[]>([]);
+  const [allItems, setAllItems] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedEntity, setSelectedEntity] = useState<string>("all");
+  const [selectedEntities, setSelectedEntities] = useState<string[]>([]);
   const [selectedMaterial, setSelectedMaterial] = useState<string>("all");
 
   const loadRawMaterials = async () => {
@@ -115,7 +116,7 @@ function RawMaterialsPage() {
       (item) => item.expense_category === "Raw material" || item.category === "Raw material" || (item.raw_text && item.raw_text.toLowerCase().includes("raw material"))
     );
     
-    setItems(rawMaterialExpenses as Expense[]);
+    setAllItems(rawMaterialExpenses as Expense[]);
     setLoading(false);
   };
 
@@ -141,28 +142,26 @@ function RawMaterialsPage() {
 
   // Parse items into full raw material records
   const rawMaterialRecords = useMemo(() => {
-    return items.map((item) => {
-      const { nature, rate, cleanNature, pureRateNum, unit } = parseRawMaterialDesc(item.raw_text);
+    return allItems.map((item) => {
+      const parsed = parseDescriptionDetails(item.raw_text, Number(item.amount) || 0);
       const invoiceDate = item.date ? new Date(item.date) : new Date(item.created_at);
       const fxRate = getRateToINR(item.currency, invoiceDate);
       const amountInINR = item.amount * fxRate;
-      
-      // Calculate parsed volume if rate is present
-      const estimatedVolume = pureRateNum > 0 ? Math.round(amountInINR / pureRateNum) : null;
 
       return {
         ...item,
-        nature,
-        rate,
-        cleanNature,
-        pureRateNum,
-        unit,
+        nature: parsed.materialType || "Raw Material",
+        rate: parsed.rateStr,
+        pureRateNum: parsed.rateNum ?? 0,
+        unit: parsed.rateStr.includes("/") ? "/" + parsed.rateStr.split("/")[1] : "",
         amountInINR,
-        estimatedVolume,
+        estimatedVolume: parsed.qtyNum,
+        qtyStr: parsed.qtyStr,
+        gstNum: parsed.gstNum,
         invoiceDate
       };
     });
-  }, [items]);
+  }, [allItems]);
 
   // Distinct material natures list for filter dropdown
   const distinctNatures = useMemo(() => {
@@ -179,8 +178,8 @@ function RawMaterialsPage() {
         (record.raw_text && record.raw_text.toLowerCase().includes(searchQuery.toLowerCase()));
       
       const matchesEntity = 
-        selectedEntity === "all" || 
-        record.company_entity?.toUpperCase() === selectedEntity.toUpperCase();
+        selectedEntities.length === 0 || 
+        (record.company_entity && selectedEntities.map(e => e.toUpperCase()).includes(record.company_entity.toUpperCase()));
 
       const matchesMaterial =
         selectedMaterial === "all" ||
@@ -188,7 +187,7 @@ function RawMaterialsPage() {
 
       return matchesSearch && matchesEntity && matchesMaterial;
     });
-  }, [rawMaterialRecords, searchQuery, selectedEntity, selectedMaterial]);
+  }, [rawMaterialRecords, searchQuery, selectedEntities, selectedMaterial]);
 
   // Aggregate stats
   const stats = useMemo(() => {
@@ -507,20 +506,41 @@ function RawMaterialsPage() {
                 />
               </div>
 
-              {/* Entity Filter */}
-              <div className="flex items-center border border-[rgba(212,175,55,0.2)] rounded-md px-2.5 bg-card h-8">
-                <Filter className="w-3 h-3 text-muted-foreground mr-2 shrink-0" />
-                <select
-                  value={selectedEntity}
-                  onChange={(e) => setSelectedEntity(e.target.value)}
-                  className="text-xs bg-transparent text-foreground border-none outline-none pr-4 font-medium"
+              {/* Entity Multi-Select Pills */}
+              <div className="flex items-center gap-1.5 border border-[rgba(212,175,55,0.2)] rounded-md px-2 bg-card h-8">
+                <Filter className="w-3.5 h-3.5 text-muted-foreground mr-1 shrink-0" />
+                <button
+                  onClick={() => setSelectedEntities([])}
+                  className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all",
+                    selectedEntities.length === 0
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
                 >
-                  <option value="all">All Entities</option>
-                  <option value="KS">KS</option>
-                  <option value="TI">TI</option>
-                  <option value="CPM">CPM</option>
-                  <option value="AAS">AAS</option>
-                </select>
+                  All
+                </button>
+                {["KS", "TI", "CPM", "AAS"].map((ent) => {
+                  const isSelected = selectedEntities.includes(ent);
+                  return (
+                    <button
+                      key={ent}
+                      onClick={() => {
+                        setSelectedEntities(prev =>
+                          prev.includes(ent) ? prev.filter(e => e !== ent) : [...prev, ent]
+                        );
+                      }}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all",
+                        isSelected
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {ent}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Material Nature Filter */}
@@ -561,6 +581,7 @@ function RawMaterialsPage() {
                     <th className="py-3.5 px-5">Material Nature</th>
                     <th className="py-3.5 px-5">Audited Rate</th>
                     <th className="py-3.5 px-5">Supplier</th>
+                    <th className="py-3.5 px-5 text-right">GST</th>
                     <th className="py-3.5 px-5 text-center">Entity</th>
                     <th className="py-3.5 px-5 text-right">Est. Volume</th>
                     <th className="py-3.5 px-5 text-right">Amount (Original)</th>
@@ -599,6 +620,11 @@ function RawMaterialsPage() {
                         {cleanVendorName(record.vendor)}
                       </td>
 
+                      {/* GST */}
+                      <td className="py-4 px-5 text-right font-mono text-foreground/80 whitespace-nowrap">
+                        {record.gstNum !== null ? formatCurrency(record.gstNum, record.currency) : "—"}
+                      </td>
+
                       {/* Entity */}
                       <td className="py-4 px-5 text-center">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase ${
@@ -611,17 +637,8 @@ function RawMaterialsPage() {
                       </td>
 
                       {/* Est. Volume */}
-                      <td className="py-4 px-5 text-right font-semibold text-foreground whitespace-nowrap">
-                        {record.estimatedVolume ? (
-                          <>
-                            {record.estimatedVolume.toLocaleString()}{" "}
-                            <span className="text-[9px] text-muted-foreground font-normal">
-                              {record.nature.toLowerCase().includes("box") ? "boxes" : "kg"}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground font-normal">—</span>
-                        )}
+                      <td className="py-4 px-5 text-right font-mono text-foreground/85 whitespace-nowrap">
+                        {record.qtyStr || "—"}
                       </td>
 
                       {/* Amount Original */}

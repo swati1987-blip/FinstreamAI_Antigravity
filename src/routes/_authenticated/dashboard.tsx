@@ -18,6 +18,9 @@ import {
   Plus,
   Building2,
   CalendarIcon,
+  Zap,
+  Droplet,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -126,6 +129,8 @@ function Dashboard() {
   const [selectedPeriod, setSelectedPeriod] = useState<string>("CY 2026");
   const [resolvingDuplicate, setResolvingDuplicate] = useState<Expense | null>(null);
 
+  const initialExpenseIdsRef = useRef<Set<string> | null>(null);
+
   const filteredLedgerExpenses = useMemo(() => {
     const filtered = expenses.filter((e) => {
       if (activeEntityFilter !== "All") {
@@ -150,12 +155,32 @@ function Dashboard() {
       return true;
     });
 
-    return filtered.sort((a, b) => {
+    // Separate newly added session entries from historic ones
+    const newlyAdded = filtered.filter(
+      (e) => initialExpenseIdsRef.current && !initialExpenseIdsRef.current.has(e.id)
+    );
+    const historic = filtered.filter(
+      (e) => !initialExpenseIdsRef.current || initialExpenseIdsRef.current.has(e.id)
+    );
+
+    // Sort newlyAdded by created_at desc so they appear on top in the exact order logged
+    newlyAdded.sort((a, b) => {
+      const timeA = new Date(a.created_at).getTime();
+      const timeB = new Date(b.created_at).getTime();
+      return timeB - timeA;
+    });
+
+    // Sort historic entries by standard transaction date descending
+    historic.sort((a, b) => {
       const dateA = a.date ? new Date(a.date).getTime() : new Date(a.created_at).getTime();
       const dateB = b.date ? new Date(b.date).getTime() : new Date(b.created_at).getTime();
       return dateB - dateA;
     });
+
+    // Combine them with new session entries strictly pinned on top, limited to the latest 50 entries
+    return [...newlyAdded, ...historic].slice(0, 50);
   }, [expenses, activeEntityFilter, searchTerm]);
+
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -172,7 +197,13 @@ function Dashboard() {
       setLoadError(error.message);
       return;
     }
-    setExpenses((data ?? []) as Expense[]);
+    const loadedData = data ?? [];
+    setExpenses(loadedData as Expense[]);
+    
+    // Store the initial dataset IDs upon first load
+    if (initialExpenseIdsRef.current === null) {
+      initialExpenseIdsRef.current = new Set(loadedData.map(e => e.id));
+    }
   };
 
   useEffect(() => {
@@ -415,7 +446,7 @@ function Dashboard() {
             raw_text: parsed.description || `[${kind}] ${file.name}`,
             user_id: user.id,
             business_id: linkedBusiness,
-            created_at: effectiveDate.toISOString(),
+            created_at: new Date().toISOString(),
             date: effectiveDateStr,
             main_category: mainCategoryVal,
             company_entity: entityName,
@@ -636,7 +667,7 @@ function Dashboard() {
             rawText || parsed.description || `[${attachment?.kind ?? "attachment"}] ${attachment?.name ?? ""}`,
           user_id: user.id,
           business_id: linkedBusiness,
-          created_at: effectiveDate.toISOString(),
+          created_at: new Date().toISOString(),
           date: effectiveDateStr,
           main_category: mainCategoryVal,
           company_entity: entityName,
@@ -672,6 +703,8 @@ function Dashboard() {
       setProcessing(false);
     }
   };
+
+
 
   return (
     <div className="flex min-h-screen w-full bg-background relative overflow-hidden">
@@ -970,6 +1003,8 @@ function Dashboard() {
             </div>
           </section>
 
+
+
           {/* Master Monthly File Upload */}
           <MasterUpload
             onAuditingChange={setAuditing}
@@ -1092,15 +1127,15 @@ function Dashboard() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-muted/30">
-                    <th className="px-6 py-3 font-medium">Date</th>
-                    <th className="px-6 py-3 font-medium">Vendor</th>
-                    <th className="px-6 py-3 font-medium">Category</th>
-                    <th className="px-6 py-3 font-medium">Entity</th>
-                    <th className="px-6 py-3 font-medium">Expense Category</th>
-                    <th className="px-6 py-3 font-medium text-right">Amount ({displayCurrency})</th>
+                    <th className="px-4 py-3 font-medium w-[90px]">Date</th>
+                    <th className="px-4 py-3 font-medium">Vendor</th>
+                    <th className="px-4 py-3 font-medium w-[110px]">Category</th>
+                    <th className="px-4 py-3 font-medium w-[80px]">Entity</th>
+                    <th className="px-4 py-3 font-medium w-[160px]">Expense Category</th>
+                    <th className="px-4 py-3 font-medium text-right w-[130px] whitespace-nowrap">Amount ({displayCurrency})</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1195,7 +1230,7 @@ function Dashboard() {
                             isNew ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/30"
                           )}
                         >
-                          <td className="px-6 py-3 text-muted-foreground tabular-nums whitespace-nowrap relative">
+                          <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap relative">
                             {isNew && (
                               <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary shadow-[0_0_8px_var(--primary)]" />
                             )}
@@ -1208,9 +1243,9 @@ function Dashboard() {
                               )}
                             </div>
                           </td>
-                           <td className="px-6 py-3 font-medium text-foreground whitespace-nowrap">
-                             <div className="flex items-center gap-1.5 min-w-0">
-                               <span className="truncate">{cleanVendor}</span>
+                          <td className="px-4 py-3 font-medium text-foreground">
+                             <div className="flex items-center gap-1.5 max-w-[220px]">
+                               <span className="truncate" title={cleanVendor}>{cleanVendor}</span>
                                {potentialDuplicates.has(e.id) && (
                                  <button
                                    onClick={() => setResolvingDuplicate(e)}
@@ -1222,7 +1257,7 @@ function Dashboard() {
                                )}
                              </div>
                            </td>
-                          <td className="px-6 py-3 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap">
                             <span
                               className={cn(
                                 "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide",
@@ -1234,17 +1269,17 @@ function Dashboard() {
                               {displayMainCategory}
                             </span>
                           </td>
-                          <td className="px-6 py-3 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap">
                             <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted text-primary border border-primary/20 text-xs font-bold">
                               {displayCompanyEntity}
                             </span>
                           </td>
-                          <td className="px-6 py-3 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap">
                             <span className="text-foreground/90 font-medium text-xs bg-muted/30 px-2 py-1 rounded">
                               {displayExpenseCategory}
                             </span>
                           </td>
-                          <td className="px-6 py-3 text-right font-semibold tabular-nums text-foreground whitespace-nowrap">
+                          <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground whitespace-nowrap">
                             {formatCurrency(converted, displayCurrency)}
                             {e.currency !== displayCurrency && (
                               <div className="text-[10px] font-normal text-muted-foreground">

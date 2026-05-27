@@ -11,7 +11,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, EXPENSE_CATEGORIES } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, EXPENSE_CATEGORIES, classifyExpense } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -110,7 +110,7 @@ function TransactionsPage() {
   const [mainTab, setMainTab] = useState<MainTab>("all");
   const [businessCompany, setBusinessCompany] = useState<string>("all");
   const [filterDuplicates, setFilterDuplicates] = useState<"all" | "hide_duplicates" | "duplicates_only">("all");
-  const [sortBy, setSortBy] = useState<"date_desc" | "date_asc" | "amount_desc" | "amount_asc" | "vendor_asc">("date_desc");
+  const [sortBy, setSortBy] = useState<"date_desc" | "date_asc" | "amount_desc" | "amount_asc" | "vendor_asc" | "entry_desc" | "entry_asc">("date_desc");
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [resolvingDuplicate, setResolvingDuplicate] = useState<Expense | null>(null);
@@ -150,6 +150,7 @@ function TransactionsPage() {
   const [formCurrency, setFormCurrency] = useState("INR");
   const [formCompanyEntity, setFormCompanyEntity] = useState<"KS" | "TI" | "CPM" | "AAS" | "Swati" | "Others" | "None">("None");
   const [formExpenseCategory, setFormExpenseCategory] = useState("Other expenses");
+  const [formCostType, setFormCostType] = useState<"Direct" | "Indirect" | "None">("None");
   const [formDescription, setFormDescription] = useState("");
   const [formDate, setFormDate] = useState("");
 
@@ -204,11 +205,10 @@ function TransactionsPage() {
 
   const startEditing = (e: Expense) => {
     setEditing(e);
-    setFormCategory(
-      (e.main_category || e.category) === "Business"
-        ? "Business"
-        : "Personal"
-    );
+    const mainCat = (e.main_category || e.category) === "Business"
+      ? "Business"
+      : "Personal";
+    setFormCategory(mainCat);
     setFormVendor(cleanVendorName(e.vendor));
     setFormAmount(Number(e.amount) || 0);
     setFormCurrency(e.currency || "INR");
@@ -236,6 +236,14 @@ function TransactionsPage() {
       }
     }
     setFormCompanyEntity(entity);
+
+    // Initialize Cost Type state dynamically
+    if (mainCat === "Personal") {
+      setFormCostType("None");
+    } else {
+      const classified = classifyExpense(e);
+      setFormCostType(classified.type === "Direct" ? "Direct" : classified.type === "Indirect" ? "Indirect" : "None");
+    }
   };
 
   const startAdding = () => {
@@ -246,6 +254,7 @@ function TransactionsPage() {
     setFormCurrency("INR");
     setFormCompanyEntity("None");
     setFormExpenseCategory("Other expenses");
+    setFormCostType("None");
     setFormDescription("");
     setFormDate(new Date().toISOString());
   };
@@ -257,6 +266,54 @@ function TransactionsPage() {
         .map((e) => e.company_entity!),
     ),
   ).sort();
+
+  const DIRECT_CATEGORIES = useMemo(() => [
+    "Raw Material",
+    "Labour & Wages",
+    "Electricity & Power",
+    "Water",
+    "Repairs & Maintenance",
+    "Goods Carriage & Transport",
+    "Factory-Related Expenses"
+  ], []);
+
+  const INDIRECT_CATEGORIES = useMemo(() => [
+    "Travel & Logistics",
+    "Salaries & Admin",
+    "Marketing & Ads",
+    "Software & Tech",
+    "General Overhead",
+    "Professional & Legal",
+    "Rent & Facilities",
+    "Taxes & Compliance",
+    "Other Indirect"
+  ], []);
+
+  const availableCategories = useMemo(() => {
+    if (formCategory === "Personal") {
+      return EXPENSE_CATEGORIES;
+    }
+    if (formCostType === "Direct") {
+      const list = [...DIRECT_CATEGORIES];
+      if (formExpenseCategory && !list.includes(formExpenseCategory)) {
+        list.push(formExpenseCategory);
+      }
+      return list;
+    }
+    if (formCostType === "Indirect") {
+      const list = [...INDIRECT_CATEGORIES];
+      if (formExpenseCategory && !list.includes(formExpenseCategory)) {
+        list.push(formExpenseCategory);
+      }
+      return list;
+    }
+    // None
+    const list = [...DIRECT_CATEGORIES, ...INDIRECT_CATEGORIES];
+    if (formExpenseCategory && !list.includes(formExpenseCategory)) {
+      list.push(formExpenseCategory);
+    }
+    return list;
+  }, [formCategory, formCostType, formExpenseCategory, DIRECT_CATEGORIES, INDIRECT_CATEGORIES]);
 
   // Pre-calculate exact duplicate counts in items array to make duplicate checks extremely fast
   const duplicateCounts = new Map<string, number>();
@@ -312,6 +369,16 @@ function TransactionsPage() {
       }
       if (sortBy === "amount_asc") {
         return a.amount - b.amount;
+      }
+      if (sortBy === "entry_desc") {
+        const timeA = new Date(a.created_at).getTime();
+        const timeB = new Date(b.created_at).getTime();
+        return timeB - timeA;
+      }
+      if (sortBy === "entry_asc") {
+        const timeA = new Date(a.created_at).getTime();
+        const timeB = new Date(b.created_at).getTime();
+        return timeA - timeB;
       }
       if (sortBy === "vendor_asc") {
         const vendorA = (a.vendor || "").toLowerCase().trim();
@@ -661,7 +728,7 @@ function TransactionsPage() {
           raw_text: finalRawText,
           user_id: user.id,
           business_id: linkedBusinessId,
-          created_at: isoDateStr,
+          created_at: new Date().toISOString(),
           date: dateStr,
           main_category: formCategory,
           company_entity: finalCompanyEntity,
@@ -682,7 +749,7 @@ function TransactionsPage() {
             raw_text: finalRawText,
             user_id: user.id,
             business_id: linkedBusinessId,
-            created_at: isoDateStr,
+            created_at: new Date().toISOString(),
           })
           .select()
           .single();
@@ -831,19 +898,17 @@ function TransactionsPage() {
       
       const finalCategory = isCategoryModified ? bulkCategory : "keep";
       
-      if (finalCategory === "Personal") {
-        updatePayload.company_entity = "None";
-        updatePayload.business_id = null;
-      } else {
-        if (isCompanyModified) {
-          updatePayload.company_entity = bulkCompanyEntity;
-          if (bulkCompanyEntity === "None") {
-            updatePayload.business_id = null;
-          } else {
-            const bizId = await resolveBusinessId(bulkCompanyEntity);
-            updatePayload.business_id = bizId;
-          }
+      if (isCompanyModified) {
+        updatePayload.company_entity = bulkCompanyEntity;
+        if (bulkCompanyEntity === "None") {
+          updatePayload.business_id = null;
+        } else {
+          const bizId = await resolveBusinessId(bulkCompanyEntity);
+          updatePayload.business_id = bizId;
         }
+      } else if (finalCategory === "Personal") {
+        // Only clear business_id linkage, but preserve existing company_entity
+        updatePayload.business_id = null;
       }
       
       if (isExpenseCategoryModified) {
@@ -889,9 +954,7 @@ function TransactionsPage() {
           if (isCategoryModified) {
             rulePayload.main_category = bulkCategory;
           }
-          if (finalCategory === "Personal") {
-            rulePayload.company_entity = "None";
-          } else if (isCompanyModified) {
+          if (isCompanyModified) {
             rulePayload.company_entity = bulkCompanyEntity;
           }
           if (isExpenseCategoryModified) {
@@ -910,7 +973,7 @@ function TransactionsPage() {
               user_id: user.id,
               vendor_pattern: cleanVendor,
               main_category: isCategoryModified ? bulkCategory : "Personal",
-              company_entity: finalCategory === "Personal" ? "None" : (isCompanyModified ? bulkCompanyEntity : "None"),
+              company_entity: isCompanyModified ? bulkCompanyEntity : "None",
               expense_category: isExpenseCategoryModified ? bulkExpenseCategory : "Other expenses",
             });
           }
@@ -1208,12 +1271,14 @@ function TransactionsPage() {
                   value={sortBy}
                   onValueChange={(v) => setSortBy(v as any)}
                 >
-                  <SelectTrigger className="w-[155px] h-8 text-xs bg-background">
+                  <SelectTrigger className="w-[195px] h-8 text-xs bg-background">
                     <SelectValue placeholder="Sort by..." />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="date_desc">Date (Newest First)</SelectItem>
                     <SelectItem value="date_asc">Date (Oldest First)</SelectItem>
+                    <SelectItem value="entry_desc">Entry added to ledger (Newest First)</SelectItem>
+                    <SelectItem value="entry_asc">Entry added to ledger (Oldest First)</SelectItem>
                     <SelectItem value="amount_desc">Amount (High to Low)</SelectItem>
                     <SelectItem value="amount_asc">Amount (Low to High)</SelectItem>
                     <SelectItem value="vendor_asc">Vendor (A-Z)</SelectItem>
@@ -1500,6 +1565,12 @@ function TransactionsPage() {
                   onValueChange={(v) => {
                     const cat = v as "Business" | "Personal";
                     setFormCategory(cat);
+                    if (cat === "Personal") {
+                      setFormCostType("None");
+                    } else {
+                      setFormCostType("Direct");
+                      setFormExpenseCategory("Raw Material");
+                    }
                   }}
                 >
                   <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
@@ -1531,6 +1602,33 @@ function TransactionsPage() {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <Label>Cost Type</Label>
+                <Select
+                  disabled={formCategory === "Personal"}
+                  value={formCostType}
+                  onValueChange={(v) => {
+                    const newType = v as "Direct" | "Indirect" | "None";
+                    setFormCostType(newType);
+                    if (newType === "Direct") {
+                      setFormExpenseCategory("Raw Material");
+                    } else if (newType === "Indirect") {
+                      setFormExpenseCategory("Travel & Logistics");
+                    } else {
+                      setFormExpenseCategory("Other expenses");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Select type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Direct">Direct Cost</SelectItem>
+                    <SelectItem value="Indirect">Indirect Cost</SelectItem>
+                    <SelectItem value="None">None</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               <div className="space-y-2">
                 <Label>Expense Category</Label>
@@ -1540,7 +1638,7 @@ function TransactionsPage() {
                 >
                   <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {EXPENSE_CATEGORIES.map((c) => (
+                    {availableCategories.map((c) => (
                       <SelectItem key={c} value={c}>{c}</SelectItem>
                     ))}
                   </SelectContent>
@@ -1661,6 +1759,12 @@ function TransactionsPage() {
                 onValueChange={(v) => {
                   const cat = v as "Business" | "Personal";
                   setFormCategory(cat);
+                  if (cat === "Personal") {
+                    setFormCostType("None");
+                  } else {
+                    setFormCostType("Direct");
+                    setFormExpenseCategory("Raw Material");
+                  }
                 }}
               >
                 <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
@@ -1692,6 +1796,33 @@ function TransactionsPage() {
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label>Cost Type</Label>
+              <Select
+                disabled={formCategory === "Personal"}
+                value={formCostType}
+                onValueChange={(v) => {
+                  const newType = v as "Direct" | "Indirect" | "None";
+                  setFormCostType(newType);
+                  if (newType === "Direct") {
+                    setFormExpenseCategory("Raw Material");
+                  } else if (newType === "Indirect") {
+                    setFormExpenseCategory("Travel & Logistics");
+                  } else {
+                    setFormExpenseCategory("Other expenses");
+                  }
+                }}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="Select type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Direct">Direct Cost</SelectItem>
+                  <SelectItem value="Indirect">Indirect Cost</SelectItem>
+                  <SelectItem value="None">None</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
             <div className="space-y-2">
               <Label>Expense Category</Label>
@@ -1701,7 +1832,7 @@ function TransactionsPage() {
               >
                 <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {EXPENSE_CATEGORIES.map((c) => (
+                  {availableCategories.map((c) => (
                     <SelectItem key={c} value={c}>{c}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1804,7 +1935,7 @@ function TransactionsPage() {
               <Select
                 value={bulkCompanyEntity}
                 onValueChange={(v) => setBulkCompanyEntity(v as any)}
-                disabled={bulkCategory === "Personal"}
+
               >
                 <SelectTrigger className="bg-background">
                   <SelectValue />
