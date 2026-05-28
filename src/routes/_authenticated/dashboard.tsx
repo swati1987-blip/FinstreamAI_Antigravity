@@ -50,7 +50,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription } from "@/lib/utils";
 
 async function mergeDebitOrCreditNote(
   supabaseClient: any,
@@ -898,7 +898,13 @@ function Dashboard() {
       }
 
       const mainCategoryVal = isBiz ? "Business" : "Personal";
-      const { expenseCategory } = parseExpenseCategoryAndDescription(rawText || parsed.description);
+      
+      // Clean and construct description from note or voice transcription
+      const cleanDesc = cleanDescription(parsed.description || rawText, String(parsed.amount));
+      const { expenseCategory } = parseExpenseCategoryAndDescription(cleanDesc || rawText || parsed.description);
+      const finalRawText = cleanDesc 
+        ? `${expenseCategory} · ${cleanDesc}` 
+        : (parsed.description || rawText || expenseCategory);
 
       // Use the invoice date from the parsed bill if available; otherwise use the user-selected date
       const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
@@ -968,7 +974,7 @@ function Dashboard() {
           category: parsed.category,
           currency: detectedCurrency,
           raw_text:
-            rawText || parsed.description || `[${attachment?.kind ?? "attachment"}] ${attachment?.name ?? ""}`,
+            finalRawText || `[${attachment?.kind ?? "attachment"}] ${attachment?.name ?? ""}`,
           user_id: user.id,
           business_id: linkedBusiness,
           created_at: new Date().toISOString(),

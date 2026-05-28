@@ -3,6 +3,7 @@ import { generateText, type ModelMessage } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider, createDirectGoogleProvider } from "./ai-gateway";
 import { SUPPORTED_CURRENCIES } from "./expense-shared";
+import { cleanDescription } from "./utils";
 
 const inputSchema = z
   .object({
@@ -133,6 +134,7 @@ function parseExpenseText(rawText: string, defaultCurrency: string): ParsedExpen
     amount,
     category: businessWords.test(text) ? "Business" : "Personal",
     currency,
+    description: cleanDescription(text, amountText),
   };
 }
 

@@ -448,6 +448,43 @@ export function parseDescriptionDetails(description: string | null | undefined, 
   };
 }
 
+export function cleanDescription(rawText: string | null | undefined, amountText?: string): string {
+  if (!rawText) return "";
+  let desc = rawText.trim();
+  
+  // 1. Remove amount if specified
+  if (amountText) {
+    const cleanAmt = amountText.replace(/,/g, "");
+    desc = desc.replace(new RegExp(cleanAmt, 'g'), "");
+    // Also try removing with comma formatting
+    const formatted = parseFloat(cleanAmt);
+    if (!isNaN(formatted)) {
+      desc = desc.replace(new RegExp(formatted.toLocaleString("en-IN"), 'g'), "");
+      desc = desc.replace(new RegExp(formatted.toLocaleString("en-US"), 'g'), "");
+    }
+  }
+  
+  // 2. Remove standard transaction verbs, currencies, and prefixes/suffixes
+  desc = desc
+    .replace(/\b(add|spent|paid|pay|bought|purchase|purchased|expense|cost|log|record|for|at|to|from|on|of|with|using|via)\b/gi, " ")
+    .replace(/\b(rs\.?|inr|usd|eur|gbp|jpy|aud|cad|sgd|aed|chf)\b|[₹$€£¥]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // 3. Remove business entity indicator phrases at the end, e.g. "and business as KS", "selected business as KS", etc.
+  desc = desc
+    .replace(/\b(and\s+)?(selected\s+)?business\s+(as|is|for)\s+[A-Z]{2,3}\b/gi, "")
+    .replace(/\b(in|for|division|entity)\s+[A-Z]{2,3}\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // 4. Remove leading/trailing punctuation and space
+  desc = desc.replace(/^[.,;:!\s\-·•/]+|[.,;:!\s\-·•/]+$/g, "").trim();
+
+  if (!desc) return "";
+  return desc.charAt(0).toUpperCase() + desc.slice(1);
+}
+
 export function resolveEntityFromVendor(vendor: string | null | undefined, rawText?: string | null): string {
   const textToCheck = `${vendor || ""} ${rawText || ""}`.toUpperCase();
   
