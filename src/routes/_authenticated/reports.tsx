@@ -56,12 +56,12 @@ import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor, 
 function MarkdownRenderer({ text }: { text: string }) {
   const lines = text.split("\n");
   return (
-    <div className="space-y-3 text-sm text-foreground/90 leading-relaxed font-sans relative z-10">
+    <div className="space-y-4 text-[13px] md:text-sm text-foreground/90 leading-relaxed font-sans relative z-10">
       {lines.map((line, i) => {
         const trimmed = line.trim();
         if (trimmed.startsWith("###")) {
           return (
-            <h4 key={i} className="text-sm font-extrabold text-primary uppercase tracking-wider mt-1 mb-2.5 flex items-center gap-1.5 border-b border-primary/10 pb-1.5 w-fit">
+            <h4 key={i} className="text-xs md:text-sm font-extrabold text-primary uppercase tracking-widest mt-2 mb-3 flex items-center gap-1.5 border-b border-primary/20 pb-2 w-fit">
               {trimmed.replace(/^###\s*/, "")}
             </h4>
           );
@@ -70,18 +70,18 @@ function MarkdownRenderer({ text }: { text: string }) {
           const content = trimmed.replace(/^\*\s*/, "");
           const parts = content.split(/\*\*(.*?)\*\*/);
           return (
-            <div key={i} className="flex items-start gap-2 pl-1">
-              <span className="text-primary mt-1.5 shrink-0 text-[10px] select-none">•</span>
-              <p className="flex-1">
+            <div key={i} className="flex items-start gap-3 pl-0.5 my-2.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 shrink-0 shadow-[0_0_8px_rgba(212,175,55,0.7)]" />
+              <p className="flex-1 text-foreground/90 font-medium">
                 {parts.map((part, idx) => {
                   if (idx % 2 === 1) {
-                    return <strong key={idx} className="font-bold text-foreground pr-0.5">{part}</strong>;
+                    return <strong key={idx} className="font-extrabold text-foreground pr-0.5">{part}</strong>;
                   }
                   const italicParts = part.split(/\*(.*?)\*/);
                   return italicParts.map((ip, iidx) => {
                     if (iidx % 2 === 1) {
                       return (
-                        <span key={iidx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 border border-amber-500/20 text-amber-300 italic mx-0.5">
+                        <span key={iidx} className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 dark:bg-amber-500/20 border border-amber-500/35 text-amber-850 dark:text-amber-300 italic mx-0.5 shadow-sm leading-tight">
                           {ip}
                         </span>
                       );
@@ -96,7 +96,7 @@ function MarkdownRenderer({ text }: { text: string }) {
         if (trimmed === "") {
           return null;
         }
-        return <p key={i}>{line}</p>;
+        return <p key={i} className="text-foreground/80">{line}</p>;
       })}
     </div>
   );
@@ -1135,38 +1135,105 @@ function ReportsPage() {
 
         <div className="p-6 md:p-10 space-y-8 max-w-6xl mx-auto">
           {/* ── Timeframe selector ────────────────────────────────── */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card/30 p-5 rounded-xl border border-border">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-card/30 p-5 rounded-xl border border-border">
             <div>
               <h2 className="text-base font-semibold flex items-center gap-2 text-foreground">
-                <Calendar className="w-4 h-4 text-primary" /> Select Analysis Interval
+                <Calendar className="w-4 h-4 text-primary animate-pulse" /> Select Analysis Interval
               </h2>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Tracking {summary.count} transactions in the selected period
               </p>
             </div>
-            <div className="flex flex-wrap bg-muted p-1 rounded-lg border border-border self-start md:self-center gap-1">
-              {(["Day", "Week", "Month", "Quarter", "Year"] as const).map((tf) => {
-                const label = 
-                  tf === "Day" ? "Day-wise" :
-                  tf === "Week" ? "Week-wise" :
-                  tf === "Month" ? "Month-wise" :
-                  tf === "Quarter" ? "Quarter-wise" :
-                  "Year-wise";
-                return (
-                  <button
-                    key={tf}
-                    onClick={() => setTimeframe(tf)}
-                    className={cn(
-                      "px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer whitespace-nowrap",
-                      timeframe === tf
-                        ? "bg-primary text-primary-foreground shadow-[0_4px_12px_-3px_rgba(212,175,55,0.4)] font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+            
+            <div className="flex flex-wrap items-center gap-3 self-start lg:self-center">
+              {/* Period Dropdown Selection */}
+              <div className="flex items-center border border-border/80 rounded-md px-2.5 bg-card h-8">
+                <Calendar className="w-3.5 h-3.5 text-muted-foreground mr-2 shrink-0" />
+                <select
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                  className="text-xs bg-transparent text-foreground border-none outline-none pr-4 font-semibold cursor-pointer focus:ring-0 focus:outline-none"
+                >
+                  <option value="CY 2026">Calendar Year 2026</option>
+                  <option value="CY 2025">Calendar Year 2025</option>
+                  <option value="FY 2026-27">Financial Year 2026-27</option>
+                  <option value="FY 2025-26">Financial Year 2025-26</option>
+                  <optgroup label="Months (2026)">
+                    <option value="month-2026-0">January 2026</option>
+                    <option value="month-2026-1">February 2026</option>
+                    <option value="month-2026-2">March 2026</option>
+                    <option value="month-2026-3">April 2026</option>
+                    <option value="month-2026-4">May 2026</option>
+                    <option value="month-2026-5">June 2026</option>
+                    <option value="month-2026-6">July 2026</option>
+                    <option value="month-2026-7">August 2026</option>
+                    <option value="month-2026-8">September 2026</option>
+                    <option value="month-2026-9">October 2026</option>
+                    <option value="month-2026-10">November 2026</option>
+                    <option value="month-2026-11">December 2026</option>
+                  </optgroup>
+                  <optgroup label="Months (2025)">
+                    <option value="month-2025-0">January 2025</option>
+                    <option value="month-2025-1">February 2025</option>
+                    <option value="month-2025-2">March 2025</option>
+                    <option value="month-2025-3">April 2025</option>
+                    <option value="month-2025-4">May 2025</option>
+                    <option value="month-2025-5">June 2025</option>
+                    <option value="month-2025-6">July 2025</option>
+                    <option value="month-2025-7">August 2025</option>
+                    <option value="month-2025-8">September 2025</option>
+                    <option value="month-2025-9">October 2025</option>
+                    <option value="month-2025-10">November 2025</option>
+                    <option value="month-2025-11">December 2025</option>
+                  </optgroup>
+                  <option value="custom">Custom Date Range...</option>
+                  <option value="All">All Periods</option>
+                </select>
+              </div>
+
+              {/* Custom Date Range Picker */}
+              {selectedPeriod === "custom" && (
+                <div className="flex items-center gap-1.5 animate-in fade-in duration-200">
+                  <input
+                    type="date"
+                    value={customFromDate}
+                    onChange={(e) => setCustomFromDate(e.target.value)}
+                    className="text-xs h-8 px-2 border border-border/80 rounded-md bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                  <input
+                    type="date"
+                    value={customToDate}
+                    onChange={(e) => setCustomToDate(e.target.value)}
+                    className="text-xs h-8 px-2 border border-border/80 rounded-md bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              )}
+
+              <div className="flex bg-muted p-1 rounded-lg border border-border gap-1">
+                {(["Day", "Week", "Month", "Quarter", "Year"] as const).map((tf) => {
+                  const label = 
+                    tf === "Day" ? "Day-wise" :
+                    tf === "Week" ? "Week-wise" :
+                    tf === "Month" ? "Month-wise" :
+                    tf === "Quarter" ? "Quarter-wise" :
+                    "Year-wise";
+                  return (
+                    <button
+                      key={tf}
+                      onClick={() => setTimeframe(tf)}
+                      className={cn(
+                        "px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer whitespace-nowrap",
+                        timeframe === tf
+                          ? "bg-primary text-primary-foreground shadow-[0_4px_12px_-3px_rgba(212,175,55,0.4)] font-bold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
