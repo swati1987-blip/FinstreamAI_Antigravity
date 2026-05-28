@@ -483,7 +483,7 @@ function ReportsPage() {
   const categoryData = useMemo(() => {
     const map: Record<string, number> = {};
     for (const r of filteredRows) {
-      const cat = r.expense_category || "Other expenses";
+      const cat = normalizeCategory(r.expense_category || "Other expenses");
       map[cat] = (map[cat] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
     }
     return Object.entries(map)
@@ -621,8 +621,8 @@ function ReportsPage() {
       const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
       if (amt > largestAmt) { largestAmt = amt; largestTx = r; }
       vendorCount[r.vendor || "Unknown"] = (vendorCount[r.vendor || "Unknown"] || 0) + 1;
-      catINR[r.expense_category || "Other expenses"] =
-        (catINR[r.expense_category || "Other expenses"] || 0) + amt;
+      const cat = normalizeCategory(r.expense_category || "Other expenses");
+      catINR[cat] = (catINR[cat] || 0) + amt;
     }
 
     // Prior same-length window for MoM comparison
@@ -640,7 +640,7 @@ function ReportsPage() {
       const d = new Date(effectiveDate(r));
       const diff = now.getTime() - d.getTime();
       if (diff > windowMs && diff <= windowMs * 2) {
-        const cat = r.expense_category || "Other expenses";
+        const cat = normalizeCategory(r.expense_category || "Other expenses");
         priorCatINR[cat] = (priorCatINR[cat] || 0) +
           convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
       }
@@ -669,7 +669,8 @@ function ReportsPage() {
     const vendorINR: Record<string, number> = {};
     for (const r of filteredRows) {
       const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
-      catINR[r.expense_category || "Other expenses"] = (catINR[r.expense_category || "Other expenses"] || 0) + amt;
+      const cat = normalizeCategory(r.expense_category || "Other expenses");
+      catINR[cat] = (catINR[cat] || 0) + amt;
       vendorINR[r.vendor || "Unknown"] = (vendorINR[r.vendor || "Unknown"] || 0) + amt;
     }
 
@@ -726,7 +727,7 @@ function ReportsPage() {
 
   const drilldownStats = useMemo(() => {
     const target = selectedDrilldown || categoryData[0]?.name || "Other expenses";
-    const matched = filteredRows.filter((r) => (r.expense_category || "Other expenses") === target);
+    const matched = filteredRows.filter((r) => normalizeCategory(r.expense_category || "Other expenses") === target);
     let total = 0;
     for (const r of matched)
       total += convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
@@ -742,7 +743,7 @@ function ReportsPage() {
   // ── Period comparison ──────────────────────────────────────────────────
   const allCategories = useMemo(() => {
     const set = new Set<string>();
-    for (const r of rows) set.add(r.expense_category || "Other expenses");
+    for (const r of rows) set.add(normalizeCategory(r.expense_category || "Other expenses"));
     return Array.from(set).sort();
   }, [rows]);
 
@@ -760,7 +761,7 @@ function ReportsPage() {
         const d = new Date(effectiveDate(r));
         if (isNaN(d.getTime())) continue;
         const yr = d.getFullYear().toString();
-        const cat = r.expense_category || "Other expenses";
+        const cat = normalizeCategory(r.expense_category || "Other expenses");
         if (!categories.includes(cat)) continue;
         const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
         if (!map[yr]) map[yr] = {};
@@ -775,7 +776,7 @@ function ReportsPage() {
         const d = new Date(effectiveDate(r));
         if (isNaN(d.getTime())) continue;
         const qtr = `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
-        const cat = r.expense_category || "Other expenses";
+        const cat = normalizeCategory(r.expense_category || "Other expenses");
         if (!categories.includes(cat)) continue;
         const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
         if (!map[qtr]) map[qtr] = {};
@@ -820,7 +821,7 @@ function ReportsPage() {
       (r.vendor || "").replace(/,/g, ";"),
       r.main_category || r.category || "",
       r.company_entity || "",
-      r.expense_category || "",
+      r.expense_category ? normalizeCategory(r.expense_category) : "",
       (r.raw_text || "").replace(/,/g, ";"),
       convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at).toFixed(2),
       r.currency,
@@ -843,7 +844,7 @@ function ReportsPage() {
       r.vendor || "Unknown",
       r.main_category || r.category || "Business",
       r.company_entity || "None",
-      r.expense_category || "Other expenses",
+      normalizeCategory(r.expense_category || "Other expenses"),
       (r.raw_text || "").replace(/\t/g, " "),
       convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at).toFixed(2),
       r.currency,
@@ -900,7 +901,7 @@ function ReportsPage() {
         vendor: r.vendor || "Unknown",
         category: r.main_category || r.category || "Business",
         entity: r.company_entity || "None",
-        expense_category: r.expense_category || "Other expenses",
+        expense_category: normalizeCategory(r.expense_category || "Other expenses"),
         description: r.raw_text || "",
         amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at),
         currency: r.currency,

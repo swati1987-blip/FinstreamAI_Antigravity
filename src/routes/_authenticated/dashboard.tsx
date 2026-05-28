@@ -50,7 +50,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory } from "@/lib/utils";
 
 async function mergeDebitOrCreditNote(
   supabaseClient: any,
@@ -1819,7 +1819,7 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
         }
       }
       
-      const dynamicCategories = Array.from(new Set(expenses.map(e => (e.expense_category || e.category || "").toLowerCase()))).filter(Boolean);
+      const dynamicCategories = Array.from(new Set(expenses.map(e => normalizeCategory(e.expense_category || e.category || "").toLowerCase()))).filter(Boolean);
       for (const cat of dynamicCategories) {
         if (cat.length > 2 && lower.includes(cat)) {
           targetCategory = cat;
@@ -1852,7 +1852,7 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
       const totalCount = expenses.length;
       const totalAmount = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
       const uniqueVendors = Array.from(new Set(expenses.map(e => cleanVendorName(e.vendor || "")))).filter(Boolean);
-      const uniqueExpenseCategories = Array.from(new Set(expenses.map(e => e.expense_category || e.category || "Other"))).filter(Boolean);
+      const uniqueExpenseCategories = Array.from(new Set(expenses.map(e => normalizeCategory(e.expense_category || e.category || "Other")))).filter(Boolean);
       const uniqueEntities = Array.from(new Set(expenses.map(e => e.company_entity || "None"))).filter(Boolean);
 
       let firstDate = "N/A";
@@ -1886,7 +1886,7 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
             const d = new Date(dateStr);
             if (!isNaN(d.getTime())) displayDate = format(d, "dd-MMM-yy");
           } catch {}
-          reply = `💰 **Largest Single Transaction Outflow:**\n\nThe most expensive transaction recorded in your database is **₹${highestTx.amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}** billed by **${cleanVendorName(highestTx.vendor || "")}** on **${displayDate}** (Category: ${highestTx.expense_category || highestTx.category || "Other"}).`;
+          reply = `💰 **Largest Single Transaction Outflow:**\n\nThe most expensive transaction recorded in your database is **₹${highestTx.amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}** billed by **${cleanVendorName(highestTx.vendor || "")}** on **${displayDate}** (Category: ${normalizeCategory(highestTx.expense_category || highestTx.category || "Other")}).`;
         }
       } else if (lower.includes("average") || lower.includes("avg") || lower.includes("mean")) {
         const avg = totalCount > 0 ? totalAmount / totalCount : 0;
@@ -1958,7 +1958,7 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
               }
             } catch {}
             
-            reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on *${displayDate}* (${e.expense_category || e.category || "Other"})\n`;
+            reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on *${displayDate}* (${normalizeCategory(e.expense_category || e.category || "Other")})\n`;
           });
         }
       } else if (lower.includes("budget") || lower.includes("limit") || lower.includes("actual")) {
@@ -1966,7 +1966,8 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
         const catSpent: Record<string, number> = {};
         expenses.forEach((e) => {
           if (e.expense_category) {
-            catSpent[e.expense_category] = (catSpent[e.expense_category] || 0) + Number(e.amount);
+            const cat = normalizeCategory(e.expense_category);
+            catSpent[cat] = (catSpent[cat] || 0) + Number(e.amount);
           }
         });
         
@@ -2048,7 +2049,7 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
         } else {
           reply += `Flagged **${spikes.length} high-value single transactions** representing potential outflow spikes:\n\n`;
           spikes.slice(0, 3).forEach((e) => {
-            reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on **${e.date || "May 23rd"}** (Category: ${e.expense_category || "Other"})\n`;
+            reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on **${e.date || "May 23rd"}** (Category: ${normalizeCategory(e.expense_category || e.category || "Other")})\n`;
           });
         }
       } else {

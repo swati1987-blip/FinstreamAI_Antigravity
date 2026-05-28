@@ -11,7 +11,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, EXPENSE_CATEGORIES, classifyExpense } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, EXPENSE_CATEGORIES, classifyExpense, normalizeCategory } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -214,7 +214,7 @@ function TransactionsPage() {
     setFormCurrency(e.currency || "INR");
     setFormDate(e.date || e.created_at || new Date().toISOString());
 
-    const expenseCategory = e.expense_category || "Other expenses";
+    const expenseCategory = normalizeCategory(e.expense_category || "Other expenses");
     let description = e.raw_text || "";
 
     if (e.raw_text && e.raw_text.includes(" · ")) {
