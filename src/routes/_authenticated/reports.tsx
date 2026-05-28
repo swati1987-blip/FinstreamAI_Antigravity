@@ -53,6 +53,55 @@ import {
 } from "@/components/ui/select";
 import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor, normalizeCategory } from "@/lib/utils";
 
+function MarkdownRenderer({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div className="space-y-3 text-sm text-foreground/90 leading-relaxed font-sans relative z-10">
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("###")) {
+          return (
+            <h4 key={i} className="text-sm font-extrabold text-primary uppercase tracking-wider mt-1 mb-2.5 flex items-center gap-1.5 border-b border-primary/10 pb-1.5 w-fit">
+              {trimmed.replace(/^###\s*/, "")}
+            </h4>
+          );
+        }
+        if (trimmed.startsWith("*")) {
+          const content = trimmed.replace(/^\*\s*/, "");
+          const parts = content.split(/\*\*(.*?)\*\*/);
+          return (
+            <div key={i} className="flex items-start gap-2 pl-1">
+              <span className="text-primary mt-1.5 shrink-0 text-[10px] select-none">•</span>
+              <p className="flex-1">
+                {parts.map((part, idx) => {
+                  if (idx % 2 === 1) {
+                    return <strong key={idx} className="font-bold text-foreground pr-0.5">{part}</strong>;
+                  }
+                  const italicParts = part.split(/\*(.*?)\*/);
+                  return italicParts.map((ip, iidx) => {
+                    if (iidx % 2 === 1) {
+                      return (
+                        <span key={iidx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 border border-amber-500/20 text-amber-300 italic mx-0.5">
+                          {ip}
+                        </span>
+                      );
+                    }
+                    return ip;
+                  });
+                })}
+              </p>
+            </div>
+          );
+        }
+        if (trimmed === "") {
+          return null;
+        }
+        return <p key={i}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_authenticated/reports")({
   component: ReportsPage,
   head: () => ({ meta: [{ title: "Reports — FinStream" }] }),
@@ -667,56 +716,100 @@ function ReportsPage() {
 
     const catINR: Record<string, number> = {};
     const vendorINR: Record<string, number> = {};
+    let businessOpsTotal = 0;
+    let personalTotal = 0;
+    const entityBreakdown: Record<string, number> = {};
+
     for (const r of filteredRows) {
       const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
       const cat = normalizeCategory(r.expense_category || "Other expenses");
       catINR[cat] = (catINR[cat] || 0) + amt;
       vendorINR[r.vendor || "Unknown"] = (vendorINR[r.vendor || "Unknown"] || 0) + amt;
+
+      if (r.category === "Business") {
+        businessOpsTotal += amt;
+        const ent = r.company_entity || "None";
+        if (ent !== "None") {
+          entityBreakdown[ent] = (entityBreakdown[ent] || 0) + amt;
+        }
+      } else {
+        personalTotal += amt;
+      }
     }
 
     const totalINR = Object.values(catINR).reduce((a, b) => a + b, 0);
     const sortedCats = Object.entries(catINR).sort((a, b) => b[1] - a[1]);
-    const sortedVendors = Object.entries(vendorINR).sort((a, b) => b[1] - a[1]);
     const { largestTx, largestAmt, fastestCat, fastestGrowth, frequentVendors } = anomalyData;
 
-    let text = `Over the selected ${timeframe.toLowerCase()} period, `;
-
+    // 1. Top Expense Core
+    let topExpenseCoreText = "";
     if (sortedCats.length > 0) {
       const [topCat, topAmt] = sortedCats[0];
       const pct = totalINR > 0 ? ((topAmt / totalINR) * 100).toFixed(0) : "0";
-      text += `${topCat} is the largest head at ${formatCurrency(topAmt, "INR")} (${pct}% of total outflow)`;
-      if (sortedCats.length > 1)
-        text += `, followed by ${sortedCats[1][0]} at ${formatCurrency(sortedCats[1][1], "INR")}`;
-      text += ". ";
+      
+      let sectorDesc = "operational overhead";
+      if (topCat === "Salaries & Admin" || topCat === "Labour & Wages") {
+        sectorDesc = "payroll and administration";
+      } else if (topCat === "Raw Material") {
+        sectorDesc = "production inventory";
+      } else if (topCat === "Marketing & Ads") {
+        sectorDesc = "growth and marketing acquisition";
+      } else if (topCat === "Software & Tech" || topCat === "Rent & Facilities") {
+        sectorDesc = "operational infrastructure";
+      }
+      
+      topExpenseCoreText = `${topCat} is the primary spending sector (${sectorDesc}) at ${formatCurrency(topAmt, "INR")} (${pct}% of total outflows).`;
+      if (sortedCats.length > 1) {
+        const [nextCat, nextAmt] = sortedCats[1];
+        topExpenseCoreText += ` Secondary outflows were led by ${nextCat} at ${formatCurrency(nextAmt, "INR")}.`;
+      }
+    } else {
+      topExpenseCoreText = "No categories logged this period.";
     }
 
-    if (sortedVendors.length > 0) {
-      text += `Top vendors: ${sortedVendors[0][0]} (${formatCurrency(sortedVendors[0][1], "INR")})`;
-      if (sortedVendors[1]) text += ` and ${sortedVendors[1][0]} (${formatCurrency(sortedVendors[1][1], "INR")})`;
-      text += ". ";
+    // 2. Corporate Entity Split
+    let corporateEntityText = "";
+    const totalOutflow = businessOpsTotal + personalTotal;
+    if (totalOutflow > 0) {
+      const bizPct = ((businessOpsTotal / totalOutflow) * 100).toFixed(0);
+      const personalPct = ((personalTotal / totalOutflow) * 100).toFixed(0);
+      
+      corporateEntityText = `Business operations account for ${formatCurrency(businessOpsTotal, "INR")} (${bizPct}%), while personal streams comprise ${formatCurrency(personalTotal, "INR")} (${personalPct}%).`;
+      
+      const entityParts = Object.entries(entityBreakdown)
+        .sort((a, b) => b[1] - a[1])
+        .map(([ent, amt]) => `${ent}: ${formatCurrency(amt, "INR")}`);
+      
+      if (entityParts.length > 0) {
+        corporateEntityText += ` Active corporate entity breakdown: ${entityParts.join(", ")}.`;
+      } else if (businessOpsTotal > 0) {
+        corporateEntityText += ` Most business operations are concentrated within core entities.`;
+      }
+    } else {
+      corporateEntityText = "No business or personal transaction splits found.";
     }
 
-    if (fastestCat) {
-      if (fastestGrowth >= 999)
-        text += `${fastestCat} is a new spending category this period. `;
-      else if (fastestGrowth > 0)
-        text += `${fastestCat} spend is up ${fastestGrowth.toFixed(0)}% vs the prior ${timeframe.toLowerCase()}. `;
-    }
-
+    // 3. Anomaly & Duplicate Alert
+    let anomalyText = "";
     if (frequentVendors.length > 0) {
-      const vlist = frequentVendors.slice(0, 2).map(([v, c]) => `${v} (×${c})`).join(", ");
-      text += `${vlist} appear${frequentVendors.length === 1 ? "s" : ""} multiple times — verify for potential duplicates. `;
+      const list = frequentVendors.slice(0, 2).map(([vend, count]) => {
+        return `*Action Required: Review ${count} matching transactions for ${cleanVendorName(vend)} for potential duplicate entries.*`;
+      });
+      anomalyText = list.join(" ");
+    } else {
+      anomalyText = "No potential double-billing or multiple-transaction vendor spikes detected this period.";
     }
 
-    if (largestTx) {
-      const txDate = (() => {
-        try { return format(new Date(effectiveDate(largestTx!)), "dd-MMM-yy"); }
-        catch { return "—"; }
-      })();
-      text += `Largest single transaction: ${formatCurrency(largestAmt, "INR")} — ${largestTx.vendor || "Unknown"} on ${txDate}.`;
-    }
+    const titleLabel = timeframe === "Month" || timeframe === "Day" || timeframe === "Week"
+      ? "Monthly Spend Insights"
+      : timeframe === "Quarter"
+        ? "Quarterly Spend Insights"
+        : "Yearly Spend Insights";
 
-    return text;
+    return `### 📊 ${titleLabel}
+* **Top Expense Core:** ${topExpenseCoreText}
+* **Corporate Entity Split:** ${corporateEntityText}
+* **Anomaly & Duplicate Alert:** ${anomalyText}`;
   }, [filteredRows, timeframe, anomalyData]);
 
   // ── Drilldown ──────────────────────────────────────────────────────────
@@ -1108,7 +1201,7 @@ function ReportsPage() {
                         ✦ AI Generated · {timeframe}
                       </span>
                     </div>
-                    <p className="text-sm leading-relaxed text-foreground/90 italic">{aiNarrative}</p>
+                    <MarkdownRenderer text={aiNarrative} />
                   </div>
                 </div>
               )}
