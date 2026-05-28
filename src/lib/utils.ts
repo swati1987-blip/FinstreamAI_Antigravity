@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const EXPENSE_CATEGORIES = [
-  // New Direct Categories
+  // Standardized Direct Categories
   "Raw Material",
   "Labour & Wages",
   "Electricity & Power",
@@ -15,7 +15,7 @@ export const EXPENSE_CATEGORIES = [
   "Goods Carriage & Transport",
   "Factory-Related Expenses",
   
-  // New Indirect Categories
+  // Standardized Indirect Categories
   "Travel & Logistics",
   "Salaries & Admin",
   "Marketing & Ads",
@@ -24,28 +24,8 @@ export const EXPENSE_CATEGORIES = [
   "Professional & Legal",
   "Rent & Facilities",
   "Taxes & Compliance",
-  "Other Indirect",
-  
-  // Legacy Fallbacks
-  "Raw material",
-  "Salary/Wages",
-  "Fuel",
-  "Repairs and maintenance",
-  "Courier/Transportation",
-  "Travel",
-  "Marketing expense",
-  "Advertisement",
-  "Business Promotion",
-  "Website",
-  "Admin Costs",
-  "Staff Welfare",
-  "Telecommunication",
-  "Insurance",
-  "Legal",
-  "Taxes",
-  "Rent",
-  "Other expenses",
-  "Investment"
+  "Investment & Other Assets",
+  "Other Indirect"
 ] as const;
 
 export function cleanVendorName(vendor: string | null | undefined): string {
@@ -339,11 +319,20 @@ export function classifyExpense(item: {
     return { type: "Indirect", category: "Taxes & Compliance", subcategory: sub };
   }
 
-  // 10. Other Indirect
-  if (["other expenses", "investment", "other indirect"].some(c => c === rawCat.toLowerCase())) {
+  // 10. Investment & Other Assets
+  if (["investment", "other assets", "investment & other assets", "investment and other assets"].some(c => c === rawCat.toLowerCase()) || hasDesc("investment", "shares", "mutual", "fd", "asset", "machinery", "computer", "laptop")) {
+    let sub = "Investment";
+    if (hasDesc("shares", "stock", "equity")) sub = "Equity Investments";
+    else if (hasDesc("fd", "fixed deposit", "bond")) sub = "Fixed Deposits";
+    else if (hasDesc("mutual", "fund", "sip")) sub = "Mutual Funds";
+    else if (hasDesc("asset", "machinery", "computer", "laptop", "equipment", "furniture")) sub = "Capital Assets";
+    return { type: "Indirect", category: "Investment & Other Assets", subcategory: sub };
+  }
+
+  // 11. Other Indirect
+  if (["other expenses", "other indirect"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Miscellaneous";
-    if (hasDesc("investment", "shares", "mutual", "fd")) sub = "Investment";
-    else if (hasDesc("unclassified", "unknown")) sub = "Unclassified";
+    if (hasDesc("unclassified", "unknown")) sub = "Unclassified";
     return { type: "Indirect", category: "Other Indirect", subcategory: sub };
   }
 
@@ -506,5 +495,36 @@ export function resolveEntityFromVendor(vendor: string | null | undefined, rawTe
   }
   return "None";
 }
+
+export function normalizeCategory(cat: string | null | undefined): string {
+  if (!cat) return "General Overhead";
+  const trimmed = cat.trim().toLowerCase();
+
+  // Mapping legacy or alternative names to standardized categories
+  if (trimmed === "raw material") return "Raw Material";
+  if (trimmed === "salary/wages" || trimmed === "labour & wages" || trimmed === "labour and wages" || trimmed === "labour") return "Labour & Wages";
+  if (trimmed === "electricity & power" || trimmed === "electricity" || trimmed === "fuel") return "Electricity & Power";
+  if (trimmed === "water") return "Water";
+  if (trimmed === "repairs and maintenance" || trimmed === "repairs & maintenance") return "Repairs & Maintenance";
+  if (trimmed === "courier/transportation" || trimmed === "goods carriage & transport" || trimmed === "transportation" || trimmed === "courier") return "Goods Carriage & Transport";
+  if (trimmed === "factory-related expenses") return "Factory-Related Expenses";
+  
+  if (trimmed === "travel" || trimmed === "travel & logistics") return "Travel & Logistics";
+  if (trimmed === "admin costs" || trimmed === "salaries & admin" || trimmed === "salary admin" || trimmed === "salary") return "Salaries & Admin";
+  if (trimmed === "marketing expense" || trimmed === "advertisement" || trimmed === "business promotion" || trimmed === "marketing & ads" || trimmed === "marketing") return "Marketing & Ads";
+  if (trimmed === "website" || trimmed === "telecommunication" || trimmed === "software & tech") return "Software & Tech";
+  if (trimmed === "insurance" || trimmed === "legal" || trimmed === "professional & legal") return "Professional & Legal";
+  if (trimmed === "taxes" || trimmed === "taxes & compliance") return "Taxes & Compliance";
+  if (trimmed === "rent" || trimmed === "rent & facilities") return "Rent & Facilities";
+  if (trimmed === "investment" || trimmed === "investment & other assets" || trimmed === "investment and other assets" || trimmed === "other assets" || trimmed === "assets") return "Investment & Other Assets";
+  if (trimmed === "staff welfare" || trimmed === "other expenses" || trimmed === "other indirect" || trimmed === "general overhead" || trimmed === "other") return "General Overhead";
+
+  const match = EXPENSE_CATEGORIES.find(c => c.toLowerCase() === trimmed);
+  if (match) return match;
+
+  // Fallback: title case
+  return cat.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+
 
 

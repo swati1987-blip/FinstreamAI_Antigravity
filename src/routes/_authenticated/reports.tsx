@@ -51,7 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor } from "@/lib/utils";
+import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor, normalizeCategory } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/reports")({
   component: ReportsPage,
@@ -86,12 +86,24 @@ const PIE_COLORS = [
 
 /** Monthly budget limits in INR — update to match actual targets */
 const DEFAULT_CATEGORY_BUDGETS: Record<string, number> = {
-  "Raw material":              5_000_000, // ₹50 L
-  "Telecommunication":            20_000, // ₹20 K
-  "Travel":                       50_000, // ₹50 K
-  "Website":                      25_000, // ₹25 K
-  "Repairs and maintenance":      50_000, // ₹50 K
-  "Other expenses":               30_000, // ₹30 K
+  "Raw Material":              5_000_000, // ₹50 L
+  "Labour & Wages":              200_000, // ₹2 L
+  "Electricity & Power":         150_000, // ₹1.5 L
+  "Water":                        30_000, // ₹30 K
+  "Repairs & Maintenance":        50_000, // ₹50 K
+  "Goods Carriage & Transport":   80_000, // ₹80 K
+  "Factory-Related Expenses":     40_000, // ₹40 K
+  
+  "Travel & Logistics":           50_000, // ₹50 K
+  "Salaries & Admin":            120_000, // ₹1.2 L
+  "Marketing & Ads":              75_000, // ₹75 K
+  "Software & Tech":              25_000, // ₹25 K
+  "General Overhead":             30_000, // ₹30 K
+  "Professional & Legal":         50_000, // ₹50 K
+  "Rent & Facilities":           100_000, // ₹1 L
+  "Taxes & Compliance":           40_000, // ₹40 K
+  "Investment & Other Assets":    50_000, // ₹50 K
+  "Other Indirect":               20_000, // ₹20 K
 };
 
 /** Compact axis tick formatter — shows ₹2.5L / ₹10K instead of full currency strings */
@@ -131,35 +143,78 @@ function ReportsPage() {
   const [expandedDirectGroup, setExpandedDirectGroup] = useState<string | null>(null);
   const [expandedIndirectGroup, setExpandedIndirectGroup] = useState<string | null>(null);
 
-  // Dynamic Budget Tracking States
-  const [trackedCategories, setTrackedCategories] = useState<string[]>([
-    "Raw material",
-    "Telecommunication",
-    "Travel",
-    "Website",
-    "Repairs and maintenance",
-    "Other expenses"
-  ]);
-  const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>(() => DEFAULT_CATEGORY_BUDGETS);
+  // Universal period selection
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("CY 2026");
+  const [customFromDate, setCustomFromDate] = useState<string>("");
+  const [customToDate, setCustomToDate] = useState<string>("");
+
+  // Dynamic Budget Tracking States (restored from localStorage if present)
+  const [trackedCategories, setTrackedCategories] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("finstream_tracked_categories");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+    return [
+      "Raw Material",
+      "Labour & Wages",
+      "Electricity & Power",
+      "Repairs & Maintenance",
+      "Software & Tech",
+      "General Overhead"
+    ];
+  });
+
+  const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("finstream_category_budgets");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+    return DEFAULT_CATEGORY_BUDGETS;
+  });
   
   // Inline editing state for budget limits
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>("");
+
+  // Synchronise budget changes back to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("finstream_tracked_categories", JSON.stringify(trackedCategories));
+    }
+  }, [trackedCategories]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("finstream_category_budgets", JSON.stringify(categoryBudgets));
+    }
+  }, [categoryBudgets]);
 
   // Unique categories found across all ledger rows in Supabase
   const allDbCategories = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) {
       if (r.expense_category) {
-        set.add(r.expense_category);
+        set.add(normalizeCategory(r.expense_category));
       }
     }
     // Include default categories as base
-    set.add("Raw material");
+    set.add("Raw Material");
     set.add("Telecommunication");
     set.add("Travel");
     set.add("Website");
-    set.add("Repairs and maintenance");
+    set.add("Repairs & Maintenance");
     set.add("Other expenses");
     return Array.from(set).sort();
   }, [rows]);
@@ -216,10 +271,59 @@ function ReportsPage() {
   /** Use invoice date when available so historical bills appear in the right period */
   const effectiveDate = (r: Row) => r.date || r.created_at;
 
+  const periodFilteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      const expDate = new Date(effectiveDate(r));
+      if (isNaN(expDate.getTime())) return true; // fallback
+
+      if (selectedPeriod === "FY 2026-27") {
+        // Apr 1, 2026 to Mar 31, 2027
+        const start = new Date("2026-04-01T00:00:00");
+        const end = new Date("2027-03-31T23:59:59");
+        return expDate >= start && expDate <= end;
+      }
+      if (selectedPeriod === "FY 2025-26") {
+        // Apr 1, 2025 to Mar 31, 2026
+        const start = new Date("2025-04-01T00:00:00");
+        const end = new Date("2026-03-31T23:59:59");
+        return expDate >= start && expDate <= end;
+      }
+      if (selectedPeriod === "CY 2026") {
+        // Jan 1, 2026 to Dec 31, 2026
+        const start = new Date("2026-01-01T00:00:00");
+        const end = new Date("2026-12-31T23:59:59");
+        return expDate >= start && expDate <= end;
+      }
+      if (selectedPeriod === "CY 2025") {
+        // Jan 1, 2025 to Dec 31, 2025
+        const start = new Date("2025-01-01T00:00:00");
+        const end = new Date("2025-12-31T23:59:59");
+        return expDate >= start && expDate <= end;
+      }
+      if (selectedPeriod === "custom") {
+        const start = customFromDate ? new Date(`${customFromDate}T00:00:00`) : null;
+        const end = customToDate ? new Date(`${customToDate}T23:59:59`) : null;
+        if (start && end) return expDate >= start && expDate <= end;
+        if (start) return expDate >= start;
+        if (end) return expDate <= end;
+        return true;
+      }
+      if (selectedPeriod.startsWith("month-")) {
+        const parts = selectedPeriod.replace("month-", "").split("-");
+        const yr = parseInt(parts[0], 10);
+        const mo = parseInt(parts[1], 10);
+        const start = new Date(yr, mo, 1, 0, 0, 0);
+        const end = new Date(yr, mo + 1, 0, 23, 59, 59);
+        return expDate >= start && expDate <= end;
+      }
+      return true; // All
+    });
+  }, [rows, selectedPeriod, customFromDate, customToDate]);
+
   const filteredRows = useMemo(() => {
     const now = new Date();
     const DAY = 86_400_000;
-    return rows.filter((r) => {
+    return periodFilteredRows.filter((r) => {
       const d = new Date(effectiveDate(r));
       if (isNaN(d.getTime())) return false;
       const diffDays = (now.getTime() - d.getTime()) / DAY;
@@ -230,7 +334,7 @@ function ReportsPage() {
       if (timeframe === "Year")    return diffDays <= 365;
       return true;
     });
-  }, [rows, timeframe]);
+  }, [periodFilteredRows, timeframe]);
 
   const summary = useMemo(() => {
     let total = 0, business = 0, personal = 0, investments = 0;
@@ -299,11 +403,11 @@ function ReportsPage() {
         displayGstStr = formatCurrency(convertedGst, displayCurrency);
       }
 
-      const groupKey = r.expense_category || classified.category || "Other";
+      const groupKey = normalizeCategory(r.expense_category || classified.category);
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({
         vendor: r.vendor || "Unknown",
-        materialType: parsed.materialType || (r.expense_category || classified.category),
+        materialType: parsed.materialType || groupKey,
         rateStr: parsed.rateStr,
         qty: parsed.qtyStr,
         gstStr: displayGstStr,
@@ -332,7 +436,7 @@ function ReportsPage() {
       });
       if (classified.type !== "Indirect") continue;
       const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
-      const groupKey = r.expense_category || classified.category || "Other";
+      const groupKey = normalizeCategory(r.expense_category || classified.category);
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({
         vendor: r.vendor || "Unknown",
@@ -1614,66 +1718,153 @@ function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-5">
-                  {visibleBudgets.map(({ cat, budget, spent, pct, overBudget }) => {
-                    const textColour =
-                      pct >= 100 ? "text-red-400" :
-                      pct >= 70  ? "text-amber-400" :
-                      "text-emerald-400";
-                    const strokeColor =
-                      pct >= 100 ? "stroke-red-500" :
-                      pct >= 70  ? "stroke-amber-400" :
-                      "stroke-emerald-400";
-                    const glowColor =
-                      pct >= 100 ? "rgba(239, 68, 68, 0.4)" :
-                      pct >= 70  ? "rgba(251, 191, 36, 0.4)" :
-                      "rgba(52, 211, 153, 0.4)";
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                  {/* Left Column: Concentric Recharts Visualization */}
+                  <div className="lg:col-span-2 flex flex-col justify-between bg-card/40 border border-border/30 rounded-2xl p-5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
+                    
+                    <div className="text-center relative z-10">
+                      <span className="text-[10px] font-extrabold tracking-widest text-[var(--primary)] uppercase bg-[rgba(0,242,254,0.08)] px-2.5 py-1 rounded-full border border-[rgba(0,242,254,0.15)] shadow-[0_0_10px_rgba(0,242,254,0.1)] inline-block">
+                        Concentric Budget Monitor
+                      </span>
+                      <p className="text-[10px] text-muted-foreground mt-2 font-medium">
+                        Inner Ring: Budget Limit <span className="text-[var(--accent)] font-bold">🟡</span> | Outer Ring: Actual Spent <span className="text-[var(--primary)] font-bold">🔵</span>
+                      </p>
+                    </div>
 
-                    const radius = 28;
-                    const strokeDasharray = 2 * Math.PI * radius;
-                    const strokeDashoffset = strokeDasharray - (Math.min(pct, 100) / 100) * strokeDasharray;
-
-                    return (
-                      <div 
-                        key={cat} 
-                        className="group relative flex items-center gap-4 bg-muted/10 border border-border/40 p-4 rounded-2xl transition-all duration-300 hover:bg-muted/20 hover:border-primary/20 hover:shadow-luxury"
-                      >
-                        {/* Custom Glowing SVG Circular Budget Gauge */}
-                        <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
-                          {/* Circular glow background */}
-                          <div 
-                            className="absolute inset-1.5 rounded-full blur-[6px] opacity-25 transition-all duration-700"
-                            style={{ backgroundColor: glowColor }}
-                          />
-                          <svg className="w-full h-full transform -rotate-90 overflow-visible">
-                            <circle
-                              cx="32"
-                              cy="32"
-                              r={radius}
-                              className="stroke-muted/60 fill-transparent stroke-[3.5px]"
-                            />
-                            <circle
-                              cx="32"
-                              cy="32"
-                              r={radius}
-                              className={cn("fill-transparent stroke-[4px] transition-all duration-1000 ease-out", strokeColor)}
-                              style={{
-                                strokeDasharray: strokeDasharray,
-                                strokeDashoffset: strokeDashoffset,
-                                strokeLinecap: "round",
-                                filter: pct >= 70 ? `drop-shadow(0 0 2px ${glowColor})` : undefined
+                    <div className="h-[230px] w-full flex items-center justify-center relative z-10">
+                      {budgetData.length === 0 ? (
+                        <div className="text-center text-xs text-muted-foreground flex flex-col items-center justify-center">
+                          <Target className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                          No budgets are currently tracked.
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Tooltip
+                              content={({ active, payload }) => {
+                                if (active && payload && payload.length) {
+                                  const data = payload[0].payload;
+                                  return (
+                                    <div className="bg-[#0b1222]/95 border border-[rgba(0,242,254,0.25)] p-3.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5),0_0_15px_rgba(0,242,254,0.15)] backdrop-blur-md">
+                                      <p className="text-xs font-bold text-white border-b border-border/40 pb-1.5 mb-2">{data.name}</p>
+                                      <div className="space-y-1 text-[11px]">
+                                        <div className="flex justify-between gap-6">
+                                          <span className="text-muted-foreground">Actual Spent:</span>
+                                          <span className="font-bold text-[var(--primary)] font-mono">
+                                            {formatCurrency(data.spent, "INR")}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between gap-6">
+                                          <span className="text-muted-foreground">Allocated Limit:</span>
+                                          <span className="font-bold text-[var(--accent)] font-mono">
+                                            {formatCurrency(data.budget, "INR")}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between gap-6 pt-1 border-t border-border/20 mt-1">
+                                          <span className="text-muted-foreground font-semibold">Budget Utilisation:</span>
+                                          <span className={cn(
+                                            "font-extrabold font-mono",
+                                            data.pct >= 100 ? "text-red-400" : data.pct >= 70 ? "text-[var(--accent)]" : "text-emerald-400"
+                                          )}>
+                                            {data.pct.toFixed(1)}%
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return null;
                               }}
                             />
-                          </svg>
-                          <span className={cn("absolute font-mono text-[9px] font-bold tracking-tight", textColour)}>
-                            {pct.toFixed(0)}%
-                          </span>
-                        </div>
+                            {/* Inner Ring: Budget limit per category */}
+                            <Pie
+                              data={budgetData.map((b) => ({
+                                name: b.cat,
+                                budget: b.budget,
+                                spent: b.spent,
+                                pct: b.pct,
+                                overBudget: b.overBudget
+                              }))}
+                              dataKey="budget"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={62}
+                              innerRadius={45}
+                              paddingAngle={2}
+                            >
+                              {budgetData.map((entry, index) => {
+                                const goldTones = ["#D4AF37", "#E5B842", "#F3CD6E", "#F8E0A1", "#C59B27"];
+                                const color = goldTones[index % goldTones.length];
+                                return <Cell key={`cell-inner-${index}`} fill={color} opacity={0.6} />;
+                              })}
+                            </Pie>
+                            {/* Outer Ring: Actual spent per category */}
+                            <Pie
+                              data={budgetData.map((b) => ({
+                                name: b.cat,
+                                budget: b.budget,
+                                spent: b.spent,
+                                pct: b.pct,
+                                overBudget: b.overBudget
+                              }))}
+                              dataKey="spent"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={72}
+                              outerRadius={90}
+                              paddingAngle={2}
+                            >
+                              {budgetData.map((entry, index) => {
+                                if (entry.overBudget) {
+                                  return <Cell key={`cell-outer-${index}`} fill="#EF4444" />;
+                                }
+                                const cyanTones = ["#00F2FE", "#00C6FF", "#00A8FF", "#38BDF8", "#0284C7"];
+                                const color = cyanTones[index % cyanTones.length];
+                                return <Cell key={`cell-outer-${index}`} fill={color} />;
+                              })}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
 
-                        {/* Budget Details & Inline Controls */}
-                        <div className="flex-1 min-w-0 space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-foreground truncate">{cat}</span>
+                    <div className="flex justify-center gap-4 text-[9px] font-bold tracking-tight text-muted-foreground border-t border-border/20 pt-2.5 relative z-10">
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" /> Budget Ring (Inner)
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" /> Spent Ring (Outer)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right Column: List & Details with Inline controls & Linear SVG Gradients */}
+                  <div className="lg:col-span-3 space-y-4">
+                    {visibleBudgets.map(({ cat, budget, spent, pct, overBudget }) => {
+                      const textColour =
+                        pct >= 100 ? "text-red-400" :
+                        pct >= 70  ? "text-amber-400" :
+                        "text-emerald-400";
+                      const statusColor =
+                        pct >= 100 ? "text-red-400" :
+                        pct >= 70 ? "text-[var(--accent)]" :
+                        "text-[var(--primary)]";
+
+                      return (
+                        <div 
+                          key={cat} 
+                          className="group relative flex flex-col justify-between bg-muted/10 border border-border/40 p-4 rounded-xl transition-all duration-300 hover:bg-muted/20 hover:border-primary/20 hover:shadow-luxury"
+                        >
+                          <div className="flex items-center justify-between gap-4 mb-2">
+                            {/* Budget Title */}
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", pct >= 100 ? "bg-red-500 animate-pulse" : pct >= 70 ? "bg-[var(--accent)]" : "bg-[var(--primary)]")} />
+                              <span className="text-xs font-bold text-foreground truncate">{cat}</span>
+                            </div>
+                            
                             <button
                               onClick={() => {
                                 setTrackedCategories(trackedCategories.filter((c) => c !== cat));
@@ -1686,21 +1877,43 @@ function ReportsPage() {
                             </button>
                           </div>
 
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={cn("text-xs font-extrabold tabular-nums", textColour)}>
-                              {formatCurrency(spent, "INR")}
-                            </span>
-                            
-                            {/* Inline Budget Limit Editor */}
-                            {editingCategory === cat ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-muted-foreground">/ ₹</span>
-                                <input
-                                  type="text"
-                                  value={editingValue}
-                                  onChange={(e) => setEditingValue(e.target.value.replace(/\D/g, ""))}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
+                          <div className="flex items-end justify-between flex-wrap gap-2 mb-3">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={cn("text-xs font-extrabold tabular-nums", textColour)}>
+                                {formatCurrency(spent, "INR")}
+                              </span>
+                              
+                              {/* Inline Budget Limit Editor */}
+                              {editingCategory === cat ? (
+                                <div className="flex items-center gap-1 animate-in fade-in duration-150">
+                                  <span className="text-[10px] text-muted-foreground">/ ₹</span>
+                                  <input
+                                    type="text"
+                                    value={editingValue}
+                                    onChange={(e) => setEditingValue(e.target.value.replace(/\D/g, ""))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const num = Number(editingValue);
+                                        if (!isNaN(num) && num > 0) {
+                                          const scale = 
+                                            budgetInterval === "Monthly" ? 1 :
+                                            budgetInterval === "Quarterly" ? 3 :
+                                            12;
+                                          const baseLimit = Math.round(num / scale);
+                                          setCategoryBudgets({
+                                            ...categoryBudgets,
+                                            [cat]: baseLimit,
+                                          });
+                                          setEditingCategory(null);
+                                          toast.success(`Updated base budget for "${cat}" to ${formatCurrency(baseLimit, "INR")}!`);
+                                        }
+                                      } else if (e.key === "Escape") {
+                                        setEditingCategory(null);
+                                      }
+                                    }}
+                                    className="w-20 h-5 text-[10px] font-bold bg-background border border-[rgba(0,242,254,0.25)] rounded px-1 focus:outline-none focus:ring-1 focus:ring-primary text-foreground text-center"
+                                    autoFocus
+                                    onBlur={() => {
                                       const num = Number(editingValue);
                                       if (!isNaN(num) && num > 0) {
                                         const scale = 
@@ -1712,71 +1925,71 @@ function ReportsPage() {
                                           ...categoryBudgets,
                                           [cat]: baseLimit,
                                         });
-                                        setEditingCategory(null);
-                                        toast.success(`Updated base budget for "${cat}" to ${formatCurrency(baseLimit, "INR")}!`);
                                       }
-                                    } else if (e.key === "Escape") {
                                       setEditingCategory(null);
-                                    }
-                                  }}
-                                  className="w-20 h-5 text-[10px] font-bold bg-background border border-border rounded px-1 focus:outline-none focus:ring-1 focus:ring-primary text-foreground text-center"
-                                  autoFocus
-                                  onBlur={() => {
-                                    const num = Number(editingValue);
-                                    if (!isNaN(num) && num > 0) {
-                                      const scale = 
-                                        budgetInterval === "Monthly" ? 1 :
-                                        budgetInterval === "Quarterly" ? 3 :
-                                        12;
-                                      const baseLimit = Math.round(num / scale);
-                                      setCategoryBudgets({
-                                        ...categoryBudgets,
-                                        [cat]: baseLimit,
-                                      });
-                                    }
-                                    setEditingCategory(null);
-                                  }}
-                                />
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1 group/btn">
-                                <span className="text-[10px] text-muted-foreground">
-                                  / {formatCurrency(budget, "INR")}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    setEditingCategory(cat);
-                                    setEditingValue(Math.round(budget).toString());
-                                  }}
-                                  className="opacity-0 group-hover/btn:opacity-100 hover:text-primary transition-opacity text-[10px] text-muted-foreground/60 cursor-pointer ml-1"
-                                  title="Edit limit"
-                                >
-                                  ✏️
-                                </button>
-                              </div>
-                            )}
+                                    }}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 group/btn">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    / {formatCurrency(budget, "INR")}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingCategory(cat);
+                                      setEditingValue(Math.round(budget).toString());
+                                    }}
+                                    className="opacity-0 group-hover/btn:opacity-100 hover:text-[var(--primary)] transition-opacity text-[10px] text-muted-foreground/60 cursor-pointer ml-1.5"
+                                    title="Edit limit"
+                                  >
+                                    ✏️
+                                  </button>
+                                </div>
+                              )}
+                            </div>
 
-                            {overBudget && (
-                              <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 animate-pulse">
-                                OVER
+                            <div className="flex items-center gap-2">
+                              <span className={cn("text-[10px] font-bold tabular-nums font-mono", statusColor)}>
+                                {pct.toFixed(0)}% utilised
                               </span>
-                            )}
+                              {overBudget && (
+                                <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 animate-pulse">
+                                  OVER
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Premium Glowing Custom Linear Gradient Bar */}
+                          <div className="h-1.5 w-full bg-[rgba(255,255,255,0.05)] rounded-full overflow-hidden relative">
+                            <div 
+                              className={cn(
+                                "h-full rounded-full transition-all duration-1000 ease-out", 
+                                pct >= 100 
+                                  ? "bg-gradient-to-r from-rose-500 to-red-600 shadow-[0_0_8px_#ef4444]" 
+                                  : pct >= 70 
+                                  ? "bg-gradient-to-r from-amber-400 to-[var(--accent)] shadow-[0_0_8px_var(--accent)]" 
+                                  : "bg-gradient-to-r from-[var(--primary)] to-[#00c6ff] shadow-[0_0_8px_var(--primary)]"
+                              )}
+                              style={{ width: `${Math.min(pct, 100)}%` }}
+                            />
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
 
-                  {sortedBudgets.length > 5 && (
-                    <div className="pt-2 flex justify-center border-t border-border/50">
-                      <button
-                        onClick={() => setShowAllBudgets(!showAllBudgets)}
-                        className="flex items-center gap-1 px-4 py-2 text-xs font-bold text-primary hover:text-primary-foreground border border-primary/30 hover:bg-primary bg-primary/5 rounded-lg transition-all cursor-pointer shadow-sm shadow-[0_1px_6px_rgba(212,175,55,0.1)]"
-                      >
-                        {showAllBudgets ? "Show Less (Top 5 At-Risk)" : `Show All Categories (${sortedBudgets.length})`}
-                      </button>
-                    </div>
-                  )}
+                    {sortedBudgets.length > 5 && (
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          onClick={() => setShowAllBudgets(!showAllBudgets)}
+                          className="flex items-center gap-1 px-4 py-2 text-xs font-bold text-[var(--primary)] hover:text-[var(--primary-foreground)] border border-[var(--primary)]/30 hover:bg-[var(--primary)] bg-[var(--primary)]/5 rounded-lg transition-all cursor-pointer shadow-sm shadow-[0_1px_6px_rgba(0,242,254,0.15)]"
+                        >
+                          {showAllBudgets ? "Show Less (Top 5 At-Risk)" : `Show All Categories (${sortedBudgets.length})`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

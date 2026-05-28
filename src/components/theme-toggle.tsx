@@ -1,4 +1,4 @@
-import { Sun, Moon, Sparkles } from "lucide-react";
+import { Sun, Moon, Sparkle } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 
 export function ThemeToggle() {
@@ -37,7 +37,7 @@ export function ThemeToggle() {
         {themeStyle === "neon" && (
           <span className="absolute -inset-0.5 rounded-full border border-[var(--primary)]/30 animate-pulse" />
         )}
-        <Sparkles className={`w-3.5 h-3.5 ${themeStyle === "neon" ? "animate-pulse" : ""}`} />
+        <Sparkle className={`w-3.5 h-3.5 ${themeStyle === "neon" ? "animate-pulse" : ""}`} />
       </button>
     </div>
   );

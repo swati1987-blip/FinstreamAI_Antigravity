@@ -59,6 +59,8 @@ const INDIRECT_CATEGORIES = [
   "Business Promotion",
   "Insurance",
   "Investment",
+  "Investment & Other Assets",
+  "Investment and other assets",
   "Legal",
   "Marketing expense",
   "Rent",
@@ -75,7 +77,7 @@ const OVERHEAD_GROUPS: Record<string, string[]> = {
   "Travel & Logistics": ["Travel", "Courier/Transportation"],
   "Software & Tech": ["Website", "Telecommunication"],
   "Professional & Rent": ["Legal", "Rent", "Insurance"],
-  "General Overhead": ["Admin Costs", "Taxes", "Investment", "Other expenses", "Staff Welfare"],
+  "General Overhead": ["Admin Costs", "Taxes", "Investment", "Investment & Other Assets", "Investment and other assets", "Other expenses", "Staff Welfare"],
 };
 
 function getOverheadGroup(expenseCategory: string | undefined): string {
@@ -96,6 +98,11 @@ function IndirectCostPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEntities, setSelectedEntities] = useState<string[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>("all");
+
+  // Period filter states
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("CY 2026");
+  const [customFromDate, setCustomFromDate] = useState<string>("");
+  const [customToDate, setCustomToDate] = useState<string>("");
 
   const loadIndirectCosts = async () => {
     setLoading(true);
@@ -161,8 +168,48 @@ function IndirectCostPage() {
           parsed,
         };
       })
-      .filter(r => r.classified.type !== "Personal"); // Strictly exclude Personal expenses!
-  }, [allItems]);
+      .filter(r => r.classified.type !== "Personal") // Strictly exclude Personal expenses!
+      .filter((r) => {
+        const expDate = r.invoiceDate;
+        if (selectedPeriod === "FY 2026-27") {
+          const start = new Date("2026-04-01T00:00:00");
+          const end = new Date("2027-03-31T23:59:59");
+          return expDate >= start && expDate <= end;
+        }
+        if (selectedPeriod === "FY 2025-26") {
+          const start = new Date("2025-04-01T00:00:00");
+          const end = new Date("2026-03-31T23:59:59");
+          return expDate >= start && expDate <= end;
+        }
+        if (selectedPeriod === "CY 2026") {
+          const start = new Date("2026-01-01T00:00:00");
+          const end = new Date("2026-12-31T23:59:59");
+          return expDate >= start && expDate <= end;
+        }
+        if (selectedPeriod === "CY 2025") {
+          const start = new Date("2025-01-01T00:00:00");
+          const end = new Date("2025-12-31T23:59:59");
+          return expDate >= start && expDate <= end;
+        }
+        if (selectedPeriod === "custom") {
+          const start = customFromDate ? new Date(`${customFromDate}T00:00:00`) : null;
+          const end = customToDate ? new Date(`${customToDate}T23:59:59`) : null;
+          if (start && end) return expDate >= start && expDate <= end;
+          if (start) return expDate >= start;
+          if (end) return expDate <= end;
+          return true;
+        }
+        if (selectedPeriod.startsWith("month-")) {
+          const parts = selectedPeriod.replace("month-", "").split("-");
+          const yr = parseInt(parts[0], 10);
+          const mo = parseInt(parts[1], 10);
+          const start = new Date(yr, mo, 1, 0, 0, 0);
+          const end = new Date(yr, mo + 1, 0, 23, 59, 59);
+          return expDate >= start && expDate <= end;
+        }
+        return true; // All
+      });
+  }, [allItems, selectedPeriod, customFromDate, customToDate]);
 
   // Filtered records for the ledger list (strictly indirect)
   const filteredRecords = useMemo(() => {
@@ -365,7 +412,71 @@ function IndirectCostPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            {/* Period Dropdown Selection */}
+            <div className="flex items-center border border-border/80 rounded-md px-2.5 bg-card h-8">
+              <Calendar className="w-3 h-3 text-muted-foreground mr-2 shrink-0" />
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="text-xs bg-transparent text-foreground border-none outline-none pr-4 font-semibold cursor-pointer"
+              >
+                <option value="CY 2026">Calendar Year 2026</option>
+                <option value="CY 2025">Calendar Year 2025</option>
+                <option value="FY 2026-27">Financial Year 2026-27</option>
+                <option value="FY 2025-26">Financial Year 2025-26</option>
+                <optgroup label="Months (2026)">
+                  <option value="month-2026-0">January 2026</option>
+                  <option value="month-2026-1">February 2026</option>
+                  <option value="month-2026-2">March 2026</option>
+                  <option value="month-2026-3">April 2026</option>
+                  <option value="month-2026-4">May 2026</option>
+                  <option value="month-2026-5">June 2026</option>
+                  <option value="month-2026-6">July 2026</option>
+                  <option value="month-2026-7">August 2026</option>
+                  <option value="month-2026-8">September 2026</option>
+                  <option value="month-2026-9">October 2026</option>
+                  <option value="month-2026-10">November 2026</option>
+                  <option value="month-2026-11">December 2026</option>
+                </optgroup>
+                <optgroup label="Months (2025)">
+                  <option value="month-2025-0">January 2025</option>
+                  <option value="month-2025-1">February 2025</option>
+                  <option value="month-2025-2">March 2025</option>
+                  <option value="month-2025-3">April 2025</option>
+                  <option value="month-2025-4">May 2025</option>
+                  <option value="month-2025-5">June 2025</option>
+                  <option value="month-2025-6">July 2025</option>
+                  <option value="month-2025-7">August 2025</option>
+                  <option value="month-2025-8">September 2025</option>
+                  <option value="month-2025-9">October 2025</option>
+                  <option value="month-2025-10">November 2025</option>
+                  <option value="month-2025-11">December 2025</option>
+                </optgroup>
+                <option value="custom">Custom Date Range...</option>
+                <option value="All">All Periods</option>
+              </select>
+            </div>
+
+            {/* Custom Date Range Picker */}
+            {selectedPeriod === "custom" && (
+              <div className="flex items-center gap-1.5 animate-in fade-in duration-200">
+                <input
+                  type="date"
+                  value={customFromDate}
+                  onChange={(e) => setCustomFromDate(e.target.value)}
+                  className="text-xs h-8 px-2 border border-border/80 rounded-md bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                <input
+                  type="date"
+                  value={customToDate}
+                  onChange={(e) => setCustomToDate(e.target.value)}
+                  className="text-xs h-8 px-2 border border-border/80 rounded-md bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            )}
+
             <Button
               variant="outline"
               size="sm"
