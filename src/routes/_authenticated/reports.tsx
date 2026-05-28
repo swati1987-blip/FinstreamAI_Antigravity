@@ -715,31 +715,43 @@ function ReportsPage() {
     if (filteredRows.length === 0) return "";
 
     const catINR: Record<string, number> = {};
+    const vendorCounts: Record<string, number> = {};
     const vendorINR: Record<string, number> = {};
-    let businessOpsTotal = 0;
-    let personalTotal = 0;
-    const entityBreakdown: Record<string, number> = {};
+    let fixedTotal = 0;
+    let variableTotal = 0;
+    const fixedBreakdown: Record<string, number> = {};
+
+    const fixedCategories = new Set([
+      "Salaries & Admin",
+      "Labour & Wages",
+      "Rent & Facilities",
+      "Electricity & Power"
+    ]);
 
     for (const r of filteredRows) {
       const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
       const cat = normalizeCategory(r.expense_category || "Other expenses");
       catINR[cat] = (catINR[cat] || 0) + amt;
-      vendorINR[r.vendor || "Unknown"] = (vendorINR[r.vendor || "Unknown"] || 0) + amt;
 
-      if (r.category === "Business") {
-        businessOpsTotal += amt;
-        const ent = r.company_entity || "None";
-        if (ent !== "None") {
-          entityBreakdown[ent] = (entityBreakdown[ent] || 0) + amt;
-        }
+      const rawVendor = r.vendor || "Unknown";
+      const cleanVendor = cleanVendorName(rawVendor);
+      const vendorKey = cleanVendor && cleanVendor !== "—" && cleanVendor !== "Unknown" ? cleanVendor : "Unknown";
+      if (vendorKey !== "Unknown") {
+        vendorCounts[vendorKey] = (vendorCounts[vendorKey] || 0) + 1;
+        vendorINR[vendorKey] = (vendorINR[vendorKey] || 0) + amt;
+      }
+
+      if (fixedCategories.has(cat)) {
+        fixedTotal += amt;
+        fixedBreakdown[cat] = (fixedBreakdown[cat] || 0) + amt;
       } else {
-        personalTotal += amt;
+        variableTotal += amt;
       }
     }
 
-    const totalINR = Object.values(catINR).reduce((a, b) => a + b, 0);
+    const totalINR = fixedTotal + variableTotal;
     const sortedCats = Object.entries(catINR).sort((a, b) => b[1] - a[1]);
-    const { largestTx, largestAmt, fastestCat, fastestGrowth, frequentVendors } = anomalyData;
+    const { frequentVendors } = anomalyData;
 
     // 1. Top Expense Core
     let topExpenseCoreText = "";
@@ -767,29 +779,44 @@ function ReportsPage() {
       topExpenseCoreText = "No categories logged this period.";
     }
 
-    // 2. Corporate Entity Split
-    let corporateEntityText = "";
-    const totalOutflow = businessOpsTotal + personalTotal;
-    if (totalOutflow > 0) {
-      const bizPct = ((businessOpsTotal / totalOutflow) * 100).toFixed(0);
-      const personalPct = ((personalTotal / totalOutflow) * 100).toFixed(0);
+    // 2. Fixed vs. Variable Overhead Velocity
+    let fixedVariableVelocityText = "";
+    if (totalINR > 0) {
+      const fixedPct = ((fixedTotal / totalINR) * 100).toFixed(0);
+      const variablePct = ((variableTotal / totalINR) * 100).toFixed(0);
       
-      corporateEntityText = `Business operations account for ${formatCurrency(businessOpsTotal, "INR")} (${bizPct}%), while personal streams comprise ${formatCurrency(personalTotal, "INR")} (${personalPct}%).`;
+      fixedVariableVelocityText = `Fixed operational baseline expenditures (Payroll, Rent, Power) stand at **${formatCurrency(fixedTotal, "INR")}** (${fixedPct}%), while fluid variable expenses constitute **${formatCurrency(variableTotal, "INR")}** (${variablePct}%).`;
       
-      const entityParts = Object.entries(entityBreakdown)
+      const fixedParts = Object.entries(fixedBreakdown)
         .sort((a, b) => b[1] - a[1])
-        .map(([ent, amt]) => `${ent}: ${formatCurrency(amt, "INR")}`);
+        .map(([cat, amt]) => `${cat}: ${formatCurrency(amt, "INR")}`);
       
-      if (entityParts.length > 0) {
-        corporateEntityText += ` Active corporate entity breakdown: ${entityParts.join(", ")}.`;
-      } else if (businessOpsTotal > 0) {
-        corporateEntityText += ` Most business operations are concentrated within core entities.`;
+      if (fixedParts.length > 0) {
+        fixedVariableVelocityText += ` Fixed cost breakdown: ${fixedParts.join(", ")}. This reflects a true operational run-rate baseline of **${formatCurrency(fixedTotal, "INR")}** required to keep the core operations active.`;
+      } else {
+        fixedVariableVelocityText += ` This indicates a highly dynamic overhead profile with minimal baseline fixed commitments this period.`;
       }
     } else {
-      corporateEntityText = "No business or personal transaction splits found.";
+      fixedVariableVelocityText = "No overhead expenditures detected to evaluate velocity.";
     }
 
-    // 3. Anomaly & Duplicate Alert
+    // 3. Transaction Density & Vendor Frequency
+    let transactionDensityText = "";
+    const sortedVendorsByCount = Object.entries(vendorCounts)
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1]);
+
+    if (sortedVendorsByCount.length > 0) {
+      const vendorParts = sortedVendorsByCount.slice(0, 3).map(([vend, count]) => {
+        const amt = vendorINR[vend] || 0;
+        return `**${vend}** (${count}x, totaling ${formatCurrency(amt, "INR")})`;
+      });
+      transactionDensityText = `High-frequency vendor endpoints include ${vendorParts.join(", ")}. Multiple recurring micro-transactions or repetitive invoicing indicate a high transaction density, which introduces operational cash flow friction and highlights active supply-chain/logistics spending habits.`;
+    } else {
+      transactionDensityText = "No high-frequency or repetitive vendor endpoints detected this period. Daily cash flow friction remains low, representing a highly diversified set of transaction endpoints.";
+    }
+
+    // 4. Anomaly & Duplicate Alert
     let anomalyText = "";
     if (frequentVendors.length > 0) {
       const list = frequentVendors.slice(0, 2).map(([vend, count]) => {
@@ -808,7 +835,8 @@ function ReportsPage() {
 
     return `### 📊 ${titleLabel}
 * **Top Expense Core:** ${topExpenseCoreText}
-* **Corporate Entity Split:** ${corporateEntityText}
+* **Fixed vs. Variable Overhead Velocity:** ${fixedVariableVelocityText}
+* **Transaction Density & Vendor Frequency:** ${transactionDensityText}
 * **Anomaly & Duplicate Alert:** ${anomalyText}`;
   }, [filteredRows, timeframe, anomalyData]);
 
