@@ -154,7 +154,9 @@ function ReportsPage() {
       const saved = localStorage.getItem("finstream_tracked_categories");
       if (saved) {
         try {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved) as string[];
+          const normalized = parsed.map(c => normalizeCategory(c));
+          return Array.from(new Set(normalized));
         } catch (e) {
           // ignore
         }
@@ -175,7 +177,13 @@ function ReportsPage() {
       const saved = localStorage.getItem("finstream_category_budgets");
       if (saved) {
         try {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved) as Record<string, number>;
+          const normalized: Record<string, number> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            const normKey = normalizeCategory(k);
+            normalized[normKey] = v;
+          }
+          return normalized;
         } catch (e) {
           // ignore
         }
@@ -577,7 +585,7 @@ function ReportsPage() {
     });
 
     for (const r of budgetRows) {
-      const cat = r.expense_category || "Other expenses";
+      const cat = normalizeCategory(r.expense_category);
       spentMap[cat] = (spentMap[cat] || 0) +
         convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
     }
