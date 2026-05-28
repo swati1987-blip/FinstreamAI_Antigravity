@@ -65,7 +65,9 @@ export function cleanVendorName(vendor: string | null | undefined): string {
   // Clean up any trailing punctuation
   name = name.replace(/[-:·•/]+$/, "").trim();
 
-  return name || vendor;
+  const finalName = name || vendor;
+  if (!finalName) return "—";
+  return finalName.charAt(0).toUpperCase() + finalName.slice(1).toLowerCase();
 }
 
 export function parseExpenseCategoryAndDescription(rawText: string | null | undefined): {
