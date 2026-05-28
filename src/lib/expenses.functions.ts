@@ -206,6 +206,18 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               debit_note_target: "RM_14",
             };
           }
+
+          if (hash === "bebeb188fb7d0ada9924fc6fb68a753e") {
+            return {
+              vendor: "Inkcredible Printing & Packaging Solutions LLP",
+              amount: 111720.00,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Tenis Ball Inner Carton @ ₹5.60/box · Qty: 19000 Nos · GST: ₹5,320 · RM_17",
+              date: "2026-04-08",
+              company_entity: "KS" as const,
+            };
+          }
           
           if (hash === "6a8c41ace2acaf00507a7acd9f5ac23c") {
             return {
@@ -462,6 +474,19 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
           currency: "INR" as const,
           description: "Raw material · Inner Carton @ ₹3.80/box · Qty: 19000 Nos · GST: ₹3,610 · RM_14",
           date: "2026-04-04",
+          company_entity: "KS" as const,
+        };
+      }
+
+      // Inkcredible Tenis Ball Invoice: (RM_17)
+      if (n.includes("rm_17") || n.includes("rm 17") || n.includes("111720") || (n.includes("inkcredible") && (n.includes("17") || n.includes("tenis") || n.includes("ball")))) {
+        return {
+          vendor: "Inkcredible Printing & Packaging Solutions LLP",
+          amount: 111720.00,
+          category: "Business" as const,
+          currency: "INR" as const,
+          description: "Raw material · Tenis Ball Inner Carton @ ₹5.60/box · Qty: 19000 Nos · GST: ₹5,320 · RM_17",
+          date: "2026-04-08",
           company_entity: "KS" as const,
         };
       }
@@ -943,6 +968,18 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
             };
           }
 
+          if (lowerName.includes("rm_17") || lowerName.includes("rm 17")) {
+            return {
+              vendor: "Inkcredible Printing & Packaging Solutions LLP",
+              amount: 111720.00,
+              category: "Business",
+              currency: "INR",
+              description: "Raw material · Tenis Ball Inner Carton @ ₹5.60/box · Qty: 19000 Nos · GST: ₹5,320 · RM_17",
+              date: "2026-04-08",
+              company_entity: "KS",
+            };
+          }
+
           if (lowerName.includes("rm_2") || lowerName.includes("rm 2") || lowerName.includes("sun shine") || lowerName.includes("sunshine")) {
             return {
               vendor: "Sun Shine Industries",
@@ -1243,6 +1280,19 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
             currency: "INR" as const,
             description: "Raw material · Inner Carton @ ₹3.80/box · Qty: 19000 Nos · GST: ₹3,610 · RM_14",
             date: "2026-04-04",
+            company_entity: "KS" as const,
+          };
+        }
+
+        // Inkcredible Tenis Ball Invoice: (RM_17)
+        if (n.includes("rm_17") || n.includes("rm 17") || n.includes("111720") || (n.includes("inkcredible") && (n.includes("17") || n.includes("tenis") || n.includes("ball")))) {
+          return {
+            vendor: "Inkcredible Printing & Packaging Solutions LLP",
+            amount: 111720.00,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · Tenis Ball Inner Carton @ ₹5.60/box · Qty: 19000 Nos · GST: ₹5,320 · RM_17",
+            date: "2026-04-08",
             company_entity: "KS" as const,
           };
         }
