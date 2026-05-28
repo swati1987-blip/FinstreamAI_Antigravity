@@ -170,6 +170,18 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
           const hash = crypto.createHash("md5").update(buffer).digest("hex").toLowerCase();
           console.log("[Mock Capture Log] Calculated MD5 signature for", data.attachment.name || "attachment", "is:", hash);
           
+          if (hash === "8d94755cc738ef15a9d2b2129fd200de") {
+            return {
+              vendor: "Sutri Chemicals",
+              amount: 123900.00,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Mix Industrial Solvent @ ₹100.00/Ltrs · Qty: 1050 Ltrs · GST: ₹18,900",
+              date: "2026-04-08",
+              company_entity: "KS" as const,
+            };
+          }
+
           if (hash === "fa0c51ae84b37304fcf00766ea681315") {
             return {
               vendor: "A B Brothers",
