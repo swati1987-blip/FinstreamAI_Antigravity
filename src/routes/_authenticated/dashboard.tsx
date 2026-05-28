@@ -878,7 +878,11 @@ function Dashboard() {
         businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
 
       let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
-      const isBiz = parsed.category === "Business";
+      
+      // Respect manual business dropdown selection and bill-detected business entities
+      const isBiz = parsed.category === "Business" || 
+                    !!linkedBusiness || 
+                    (parsed.company_entity && parsed.company_entity !== "None");
 
       // Prefer the entity detected from the bill itself (e.g. RM invoices → KS)
       if (parsed.company_entity && parsed.company_entity !== "None") {

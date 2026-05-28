@@ -51,6 +51,44 @@ interface Expense {
   expense_category?: string;
 }
 
+// Broad raw material grouping categories
+const MATERIAL_GROUPS: Record<string, string[]> = {
+  "Chemicals & Minerals": [
+    "calcium carbonate",
+    "silica powder",
+    "chalk",
+    "solvent",
+    "vulkacit",
+    "sodium nitrite",
+    "ammonium chloride",
+    "chemical"
+  ],
+  "Felt & Fabrics": [
+    "fabric",
+    "wool",
+    "felt",
+    "woven"
+  ],
+  "Packaging & Cartons": [
+    "carton",
+    "box",
+    "packaging",
+    "bhandari"
+  ]
+};
+
+function getMaterialGroup(nature: string | undefined): string {
+  if (!nature) return "General Raw Materials";
+  const normalized = nature.trim().toLowerCase();
+  
+  for (const [group, patterns] of Object.entries(MATERIAL_GROUPS)) {
+    if (patterns.some(p => normalized.includes(p))) {
+      return group;
+    }
+  }
+  return "General Raw Materials";
+}
+
 // Utility to parse description into nature and rate
 function parseRawMaterialDesc(rawText: string | null) {
   if (!rawText) return { nature: "Raw Material", rate: "—", cleanNature: "Raw Material", pureRateNum: 0, unit: "" };
@@ -103,6 +141,7 @@ function RawMaterialsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEntities, setSelectedEntities] = useState<string[]>([]);
   const [selectedMaterial, setSelectedMaterial] = useState<string>("all");
+  const [selectedGroup, setSelectedGroup] = useState<string>("all");
 
   const loadRawMaterials = async () => {
     setLoading(true);
@@ -153,10 +192,13 @@ function RawMaterialsPage() {
         companyEntity = resolveEntityFromVendor(item.vendor, item.raw_text);
       }
 
+      const materialGroup = getMaterialGroup(parsed.materialType);
+
       return {
         ...item,
         company_entity: companyEntity,
         nature: parsed.materialType || "Raw Material",
+        materialGroup,
         rate: parsed.rateStr,
         pureRateNum: parsed.rateNum ?? 0,
         unit: parsed.rateStr.includes("/") ? "/" + parsed.rateStr.split("/")[1] : "",
@@ -175,11 +217,18 @@ function RawMaterialsPage() {
     return Array.from(new Set(natures));
   }, [rawMaterialRecords]);
 
+  // Distinct material groups list for filter dropdown
+  const distinctGroups = useMemo(() => {
+    const groups = rawMaterialRecords.map(r => r.materialGroup).filter(Boolean);
+    return Array.from(new Set(groups)).sort();
+  }, [rawMaterialRecords]);
+
   // Filtered records
   const filteredRecords = useMemo(() => {
     return rawMaterialRecords.filter((record) => {
       const matchesSearch = 
         record.nature.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        record.materialGroup.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (record.vendor && record.vendor.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (record.raw_text && record.raw_text.toLowerCase().includes(searchQuery.toLowerCase()));
       
@@ -191,9 +240,13 @@ function RawMaterialsPage() {
         selectedMaterial === "all" ||
         record.nature === selectedMaterial;
 
-      return matchesSearch && matchesEntity && matchesMaterial;
+      const matchesGroup =
+        selectedGroup === "all" ||
+        record.materialGroup === selectedGroup;
+
+      return matchesSearch && matchesEntity && matchesMaterial && matchesGroup;
     });
-  }, [rawMaterialRecords, searchQuery, selectedEntities, selectedMaterial]);
+  }, [rawMaterialRecords, searchQuery, selectedEntities, selectedMaterial, selectedGroup]);
 
   // Aggregate stats
   const stats = useMemo(() => {
@@ -225,72 +278,40 @@ function RawMaterialsPage() {
     };
   }, [filteredRecords]);
 
-  // Grouped cards displaying detailed analytics for each distinct material nature
+  // Grouped cards displaying detailed analytics for broad material groups
   const materialSummaries = useMemo(() => {
     const summaryMap: Record<string, {
-      nature: string;
+      group: string;
       totalSpent: number;
       purchasesCount: number;
-      rates: { rateStr: string; pureRate: number; unit: string; date: Date }[];
       vendors: Set<string>;
-      totalVolume: number;
-      entityShares: Record<string, number>;
+      natures: Set<string>;
     }> = {};
 
     rawMaterialRecords.forEach((record) => {
-      const key = record.nature;
+      const key = record.materialGroup;
       if (!summaryMap[key]) {
         summaryMap[key] = {
-          nature: record.nature,
+          group: key,
           totalSpent: 0,
           purchasesCount: 0,
-          rates: [],
           vendors: new Set(),
-          totalVolume: 0,
-          entityShares: {}
+          natures: new Set()
         };
       }
 
       const entry = summaryMap[key];
       entry.totalSpent += record.amountInINR;
       entry.purchasesCount += 1;
-      if (record.pureRateNum > 0) {
-        entry.rates.push({
-          rateStr: record.rate,
-          pureRate: record.pureRateNum,
-          unit: record.unit,
-          date: record.invoiceDate
-        });
+      if (record.nature) {
+        entry.natures.add(record.nature);
       }
       if (record.vendor) {
         entry.vendors.add(cleanVendorName(record.vendor));
       }
-      if (record.estimatedVolume) {
-        entry.totalVolume += record.estimatedVolume;
-      }
-      if (record.company_entity) {
-        entry.entityShares[record.company_entity] = (entry.entityShares[record.company_entity] || 0) + record.amountInINR;
-      }
     });
 
-    return Object.values(summaryMap).map(summary => {
-      // Sort rates by invoice date to find newest & trends
-      const sortedRates = [...summary.rates].sort((a, b) => b.date.getTime() - a.date.getTime());
-      const latestRate = sortedRates[0]?.rateStr || "—";
-      const avgRate = sortedRates.length > 0 
-        ? Math.round(sortedRates.reduce((acc, c) => acc + c.pureRate, 0) / sortedRates.length) 
-        : 0;
-      const unit = sortedRates[0]?.unit || "";
-
-      return {
-        ...summary,
-        latestRate,
-        avgRate: avgRate > 0 ? `₹${avgRate}${unit}` : "—",
-        primaryVendor: Array.from(summary.vendors)[0] || "—",
-        ratesCount: summary.rates.length
-      };
-    }).sort((a, b) => b.totalSpent - a.totalSpent);
-
+    return Object.values(summaryMap).sort((a, b) => b.totalSpent - a.totalSpent);
   }, [rawMaterialRecords]);
 
   return (
@@ -393,7 +414,7 @@ function RawMaterialsPage() {
         <section className="mb-8">
           <h2 className="text-lg font-semibold tracking-tight mb-4 text-foreground flex items-center gap-2">
             <Layers className="w-4 h-4 text-[var(--primary)]" />
-            Procurement Catalog & Audited Prices
+            Material Groups & Procurement Driver
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {loading ? (
@@ -414,13 +435,13 @@ function RawMaterialsPage() {
                 
                 return (
                   <div 
-                    key={summary.nature}
+                    key={summary.group}
                     className="card-luxury p-5 rounded-xl border bg-card flex flex-col justify-between transition-all duration-300 hover:shadow-[0_12px_24px_-10px_rgba(212,175,55,0.12)]"
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="font-semibold text-sm tracking-tight text-foreground truncate min-w-0">
-                          {summary.nature}
+                          {summary.group}
                         </h3>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[rgba(212,175,55,0.08)] text-[var(--primary)] shrink-0">
                           {summary.purchasesCount} Invoice{summary.purchasesCount > 1 ? "s" : ""}
@@ -428,47 +449,20 @@ function RawMaterialsPage() {
                       </div>
                       
                       <div className="mt-4 space-y-2">
-                        {/* Latest audited rate */}
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Percent className="w-3.5 h-3.5 text-[var(--primary)]/60" /> Latest Audited Rate
-                          </span>
-                          <span className="font-semibold text-foreground">{summary.latestRate}</span>
+                          <span className="text-muted-foreground">Material Categories</span>
+                          <span className="font-semibold text-foreground">{summary.natures.size}</span>
                         </div>
-
-                        {/* Average rate */}
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <TrendingUp className="w-3.5 h-3.5 text-[var(--primary)]/60" /> Average Logged Rate
-                          </span>
-                          <span className="font-semibold text-foreground">{summary.avgRate}</span>
-                        </div>
-
-                        {/* Estimated volume */}
-                        {summary.totalVolume > 0 && (
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground flex items-center gap-1">
-                              <Boxes className="w-3.5 h-3.5 text-[var(--primary)]/60" /> Total Est. Volume
-                            </span>
-                            <span className="font-semibold text-foreground">
-                              {summary.totalVolume.toLocaleString()} {summary.nature.toLowerCase().includes("box") ? "boxes" : "kg"}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Primary Vendor */}
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Truck className="w-3.5 h-3.5 text-[var(--primary)]/60" /> Primary Supplier
-                          </span>
-                          <span className="font-semibold text-foreground truncate max-w-[120px]">{summary.primaryVendor}</span>
+                          <span className="text-muted-foreground">Suppliers / Vendors</span>
+                          <span className="font-semibold text-foreground">{summary.vendors.size}</span>
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-5 border-t border-[rgba(212,175,55,0.1)] pt-4">
                       <div className="flex items-center justify-between text-xs font-semibold text-foreground mb-1.5">
-                        <span>Total Purchases Cost</span>
+                        <span>Total Spent</span>
                         <span>{formatCurrency(summary.totalSpent, "INR")}</span>
                       </div>
                       
@@ -549,6 +543,21 @@ function RawMaterialsPage() {
                 })}
               </div>
 
+              {/* Material Group Filter */}
+              <div className="flex items-center border border-[rgba(212,175,55,0.2)] rounded-md px-2.5 bg-card h-8">
+                <Layers className="w-3.5 h-3.5 text-muted-foreground mr-2 shrink-0" />
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => setSelectedGroup(e.target.value)}
+                  className="text-xs bg-transparent text-foreground border-none outline-none pr-4 font-medium max-w-[150px]"
+                >
+                  <option value="all">All Groups</option>
+                  {distinctGroups.map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Material Nature Filter */}
               <div className="flex items-center border border-[rgba(212,175,55,0.2)] rounded-md px-2.5 bg-card h-8">
                 <Package className="w-3 h-3 text-muted-foreground mr-2 shrink-0" />
@@ -584,6 +593,7 @@ function RawMaterialsPage() {
                 <thead>
                   <tr className="border-b border-[rgba(212,175,55,0.15)] bg-[rgba(212,175,55,0.02)] text-muted-foreground text-[10px] uppercase tracking-wider font-semibold">
                     <th className="py-3 px-2.5">Date</th>
+                    <th className="py-3 px-2.5">Material Group</th>
                     <th className="py-3 px-2.5">Material Nature</th>
                     <th className="py-3 px-2.5">Audited Rate</th>
                     <th className="py-3 px-2.5">Supplier</th>
@@ -607,6 +617,11 @@ function RawMaterialsPage() {
                           <Calendar className="w-3.5 h-3.5 text-[var(--primary)]/60 shrink-0" />
                           {format(record.invoiceDate, "dd-MMM-yy")}
                         </div>
+                      </td>
+
+                      {/* Material Group */}
+                      <td className="py-3.5 px-2.5 text-foreground font-medium whitespace-nowrap">
+                        {record.materialGroup}
                       </td>
 
                       {/* Material Nature */}

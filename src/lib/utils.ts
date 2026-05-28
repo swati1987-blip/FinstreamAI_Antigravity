@@ -125,6 +125,48 @@ export function parseExpenseCategoryAndDescription(rawText: string | null | unde
     }
   }
 
+  // Keyword-based matching for common terms in free-form notes
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes("salary") || lowerText.includes("wages") || lowerText.includes("payroll")) {
+    if (lowerText.includes("factory") || lowerText.includes("labour") || lowerText.includes("daily") || lowerText.includes("operator")) {
+      return { expenseCategory: "Labour & Wages", description: text };
+    }
+    return { expenseCategory: "Salaries & Admin", description: text };
+  }
+  if (lowerText.includes("electricity") || lowerText.includes("power") || lowerText.includes("msedcl")) {
+    return { expenseCategory: "Electricity & Power", description: text };
+  }
+  if (lowerText.includes("water") && !lowerText.includes("bottle") && !lowerText.includes("tea")) {
+    return { expenseCategory: "Water", description: text };
+  }
+  if (lowerText.includes("repairs") || lowerText.includes("maintenance") || lowerText.includes("servicing") || lowerText.includes("spares")) {
+    return { expenseCategory: "Repairs & Maintenance", description: text };
+  }
+  if (lowerText.includes("carriage") || lowerText.includes("transport") || lowerText.includes("freight") || lowerText.includes("cargo")) {
+    return { expenseCategory: "Goods Carriage & Transport", description: text };
+  }
+  if (lowerText.includes("raw material") || lowerText.includes("chemicals") || lowerText.includes("felt") || lowerText.includes("fabric") || lowerText.includes("box") || lowerText.includes("carton")) {
+    return { expenseCategory: "Raw Material", description: text };
+  }
+  if (lowerText.includes("travel") || lowerText.includes("cab") || lowerText.includes("auto") || lowerText.includes("metro") || lowerText.includes("commute")) {
+    return { expenseCategory: "Travel & Logistics", description: text };
+  }
+  if (lowerText.includes("marketing") || lowerText.includes("advertisement") || lowerText.includes("ads") || lowerText.includes("google ads") || lowerText.includes("meta ads")) {
+    return { expenseCategory: "Marketing & Ads", description: text };
+  }
+  if (lowerText.includes("software") || lowerText.includes("saas") || lowerText.includes("subscription") || lowerText.includes("website") || lowerText.includes("domain") || lowerText.includes("hosting")) {
+    return { expenseCategory: "Software & Tech", description: text };
+  }
+  if (lowerText.includes("rent") || lowerText.includes("facilities") || lowerText.includes("coworking")) {
+    return { expenseCategory: "Rent & Facilities", description: text };
+  }
+  if (lowerText.includes("legal") || lowerText.includes("professional") || lowerText.includes("insurance") || lowerText.includes("consultant") || lowerText.includes("audit") || lowerText.includes("compliance")) {
+    return { expenseCategory: "Professional & Legal", description: text };
+  }
+  if (lowerText.includes("tax") || lowerText.includes("taxes") || lowerText.includes("gst") || lowerText.includes("tds")) {
+    return { expenseCategory: "Taxes & Compliance", description: text };
+  }
+
   return { expenseCategory: fallbackCategory, description: text };
 }
 
@@ -409,8 +451,8 @@ export function parseDescriptionDetails(description: string | null | undefined, 
 export function resolveEntityFromVendor(vendor: string | null | undefined, rawText?: string | null): string {
   const textToCheck = `${vendor || ""} ${rawText || ""}`.toUpperCase();
   
-  // AAS - All About Sports (Bhandari, Kumaram) has highest priority if it explicitly appears as buyer/billed to
-  if (/\bAAS\b|BHANDARI|KUMARAM/i.test(textToCheck)) {
+  // AAS - All About Sports (Bhandari) has highest priority if it explicitly appears as buyer/billed to
+  if (/\bAAS\b|BHANDARI/i.test(textToCheck)) {
     return "AAS";
   }
   // TI - Tech Industries (Valor, Mech)
@@ -421,8 +463,8 @@ export function resolveEntityFromVendor(vendor: string | null | undefined, rawTe
   if (/\bCPM\b/i.test(textToCheck)) {
     return "CPM";
   }
-  // KS - Kismat Sales (Sutri, Anjali, Saurashtra, Sunshine, A B Brother, Dattani etc)
-  if (/\bKS\b|SUTRI|ANJALI|SAURASHTRA|SUNSHINE|SUN\s+SHINE|A\s*B\s*BROTHER|DATTANI/i.test(textToCheck)) {
+  // KS - Kumaram Sports / Kismat Sales (Sutri, Anjali, Saurashtra, Sunshine, A B Brother, Dattani etc)
+  if (/\bKS\b|KUMARAM|SUTRI|ANJALI|SAURASHTRA|SUNSHINE|SUN\s+SHINE|A\s*B\s*BROTHER|DATTANI/i.test(textToCheck)) {
     return "KS";
   }
   return "None";

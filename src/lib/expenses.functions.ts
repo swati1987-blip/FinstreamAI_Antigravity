@@ -126,7 +126,7 @@ function parseExpenseText(rawText: string, defaultCurrency: string): ParsedExpen
 
   const currency = normalizeCurrency(prefixedAmount?.[1] ?? suffixedAmount?.[2] ?? defaultCurrency, defaultCurrency);
   const vendor = inferVendor(text, amountText) || "Expense";
-  const businessWords = /\b(client|office|business|software|subscription|saas|invoice|meeting|work|team|travel|flight|hotel)\b/i;
+  const businessWords = /\b(client|office|business|software|subscription|saas|invoice|meeting|work|team|travel|flight|hotel|salary|payroll|wage|wages|admin|electricity|water|repairs|maintenance|carriage|transport|freight|cargo)\b/i;
 
   return {
     vendor,
@@ -137,6 +137,23 @@ function parseExpenseText(rawText: string, defaultCurrency: string): ParsedExpen
 }
 
 function inferVendor(text: string, amountText: string): string {
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes("salary") || lowerText.includes("payroll") || lowerText.includes("wages")) {
+    return "Admin Salary";
+  }
+  if (lowerText.includes("electricity") || lowerText.includes("power") || lowerText.includes("msedcl")) {
+    return "MSEDCL";
+  }
+  if (lowerText.includes("water")) {
+    return "Water Supply";
+  }
+  if (lowerText.includes("rent")) {
+    return "Rent";
+  }
+  if (lowerText.includes("tax") || lowerText.includes("taxes") || lowerText.includes("gst") || lowerText.includes("tds")) {
+    return "Government Taxes";
+  }
+
   const withoutAmount = text
     .replace(amountText, "")
     .replace(/\b(spent|paid|pay|bought|purchase|purchased|expense|cost|for)\b/gi, " ")
@@ -145,7 +162,13 @@ function inferVendor(text: string, amountText: string): string {
     .trim();
 
   const match = /(?:at|to|from|on)\s+(.+?)(?:\s+(?:for|with|using|via|on)\b.*)?$/i.exec(withoutAmount);
-  const candidate = (match?.[1] ?? withoutAmount).replace(/[.,;:!]+$/g, "").trim();
+  let candidate = (match?.[1] ?? withoutAmount).replace(/[.,;:!]+$/g, "").trim();
+
+  // Clean up candidate if it starts with "Add "
+  if (candidate.toLowerCase().startsWith("add ")) {
+    candidate = candidate.slice(4).trim();
+  }
+
   if (!candidate) return "";
   return candidate
     .split(" ")
