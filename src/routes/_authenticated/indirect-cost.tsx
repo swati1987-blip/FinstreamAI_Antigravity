@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   ArrowUpRight,
   AlertTriangle,
-  HelpCircle
+  HelpCircle,
+  Flag
 } from "lucide-react";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { supabase } from "@/integrations/supabase/client";
@@ -24,7 +25,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrency } from "@/hooks/use-currency";
 import { formatCurrency } from "@/lib/currency";
 import { getRateToINR } from "@/lib/fx";
-import { cleanVendorName, cn, parseDescriptionDetails, resolveEntityFromVendor } from "@/lib/utils";
+import { cleanVendorName, cn, parseDescriptionDetails, resolveEntityFromVendor, classifyExpense } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -103,17 +104,7 @@ function IndirectCostPage() {
       .select("*")
       .order("date", { ascending: false });
     
-    const indirectCostExpenses = (data ?? []).filter(
-      (item) => {
-        const cat = (item.expense_category || "").trim();
-        const isDirectCost = [["Raw material", "Salary/Wages", "Fuel", "Repairs and maintenance", "Courier/Transportation", "Staff Welfare"]].flat().some(
-          dc => dc.toLowerCase() === cat.toLowerCase()
-        );
-        return !isDirectCost && cat !== "";
-      }
-    );
-    
-    setAllItems(indirectCostExpenses as Expense[]);
+    setAllItems((data ?? []) as Expense[]);
     setLoading(false);
   };
 
@@ -137,40 +128,49 @@ function IndirectCostPage() {
     };
   }, [user]);
 
-  const records = useMemo(() => {
-    return allItems.map((item) => {
-      const invoiceDate = item.date ? new Date(item.date) : new Date(item.created_at);
-      const fxRate = getRateToINR(item.currency, invoiceDate);
-      const amountInINR = item.amount * fxRate;
-      const overheadGroup = getOverheadGroup(item.expense_category);
-      let description = item.raw_text || "";
-      if (description.includes(" · ")) {
-        description = description.split(" · ").slice(1).join(" · ");
-      }
-      
-      const parsed = parseDescriptionDetails(item.raw_text, Number(item.amount) || 0);
+  // Enrich records and filter out Personal expenses
+  const businessRecords = useMemo(() => {
+    return allItems
+      .map((item) => {
+        const classified = classifyExpense(item);
+        const invoiceDate = item.date ? new Date(item.date) : new Date(item.created_at);
+        const fxRate = getRateToINR(item.currency, invoiceDate);
+        const amountInINR = item.amount * fxRate;
+        const overheadGroup = getOverheadGroup(item.expense_category);
+        
+        let description = item.raw_text || "";
+        if (description.includes(" · ")) {
+          description = description.split(" · ").slice(1).join(" · ");
+        }
+        
+        const parsed = parseDescriptionDetails(item.raw_text, Number(item.amount) || 0);
 
-      let companyEntity = item.company_entity || "None";
-      if (companyEntity === "None" || companyEntity === "NONE") {
-        companyEntity = resolveEntityFromVendor(item.vendor, item.raw_text);
-      }
+        let companyEntity = item.company_entity || "None";
+        if (companyEntity === "None" || companyEntity === "NONE") {
+          companyEntity = resolveEntityFromVendor(item.vendor, item.raw_text);
+        }
 
-      return {
-        ...item,
-        company_entity: companyEntity,
-        amountInINR,
-        invoiceDate,
-        overheadGroup,
-        description,
-        parsed,
-      };
-    });
+        return {
+          ...item,
+          company_entity: companyEntity,
+          classified,
+          amountInINR,
+          invoiceDate,
+          overheadGroup,
+          description,
+          parsed,
+        };
+      })
+      .filter(r => r.classified.type !== "Personal"); // Strictly exclude Personal expenses!
   }, [allItems]);
 
+  // Filtered records for the ledger list (strictly indirect)
   const filteredRecords = useMemo(() => {
-    return records.filter((record) => {
+    return businessRecords.filter((record) => {
+      if (record.classified.type !== "Indirect") return false;
+
       const matchesSearch = 
-        (record.expense_category || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (record.classified.category || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (record.vendor && record.vendor.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (record.description && record.description.toLowerCase().includes(searchQuery.toLowerCase()));
       
@@ -184,37 +184,118 @@ function IndirectCostPage() {
 
       return matchesSearch && matchesEntity && matchesGroup;
     });
-  }, [records, searchQuery, selectedEntities, selectedGroup]);
+  }, [businessRecords, searchQuery, selectedEntities, selectedGroup]);
 
   const distinctGroups = useMemo(() => {
-    return Array.from(new Set(records.map(r => r.overheadGroup))).sort();
-  }, [records]);
+    const groups = businessRecords
+      .filter(r => r.classified.type === "Indirect")
+      .map(r => r.overheadGroup);
+    return Array.from(new Set(groups)).sort();
+  }, [businessRecords]);
 
   const stats = useMemo(() => {
+    // Total Indirect Cost in the filtered view
     const indirectTotalINR = filteredRecords.reduce((acc, curr) => acc + curr.amountInINR, 0);
-    const totalBusinessOutflowINR = records.reduce((acc, curr) => acc + curr.amountInINR, 0);
-    const overheadRatio = totalBusinessOutflowINR > 0 ? (indirectTotalINR / totalBusinessOutflowINR) * 100 : 0;
+    
+    // Total Direct vs Indirect for the selected entity scope
+    const entityScopedBusinessRecords = businessRecords.filter(r => 
+      selectedEntities.length === 0 || 
+      (r.company_entity && selectedEntities.map(e => e.toUpperCase()).includes(r.company_entity.toUpperCase()))
+    );
 
-    const categoriesGrouping: Record<string, number> = {};
+    const totalDirectINR = entityScopedBusinessRecords
+      .filter(r => r.classified.type === "Direct")
+      .reduce((acc, curr) => acc + curr.amountInINR, 0);
+
+    const totalIndirectINR = entityScopedBusinessRecords
+      .filter(r => r.classified.type === "Indirect")
+      .reduce((acc, curr) => acc + curr.amountInINR, 0);
+
+    const totalBusinessOutflowINR = totalDirectINR + totalIndirectINR;
+    
+    const indirectPercentOfOutflow = totalBusinessOutflowINR > 0 
+      ? (indirectTotalINR / totalBusinessOutflowINR) * 100 
+      : 0;
+
+    const overheadRatio = totalBusinessOutflowINR > 0 
+      ? (totalIndirectINR / totalBusinessOutflowINR) * 100 
+      : 0;
+
+    // Month-on-Month Change
+    const now = new Date();
+    const currentMonthStart = startOfMonth(now);
+    const currentMonthEnd = endOfMonth(now);
+    const lastMonthStart = startOfMonth(subMonths(now, 1));
+    const lastMonthEnd = endOfMonth(subMonths(now, 1));
+
+    let currentMonthIndirectINR = 0;
+    let lastMonthIndirectINR = 0;
+
     filteredRecords.forEach(r => {
-      categoriesGrouping[r.overheadGroup] = (categoriesGrouping[r.overheadGroup] || 0) + r.amountInINR;
+      const dateObj = r.invoiceDate;
+      if (dateObj >= currentMonthStart && dateObj <= currentMonthEnd) {
+        currentMonthIndirectINR += r.amountInINR;
+      } else if (dateObj >= lastMonthStart && dateObj <= lastMonthEnd) {
+        lastMonthIndirectINR += r.amountInINR;
+      }
     });
 
-    const flaggedOverheadCategories = Object.entries(categoriesGrouping)
-      .map(([name, spend]) => {
+    let indirectMomChangePercent = 0;
+    if (lastMonthIndirectINR > 0) {
+      indirectMomChangePercent = ((currentMonthIndirectINR - lastMonthIndirectINR) / lastMonthIndirectINR) * 100;
+    } else if (currentMonthIndirectINR > 0) {
+      indirectMomChangePercent = 100;
+    }
+
+    // Dominant Overhead Cost Category
+    const grouping: Record<string, number> = {};
+    filteredRecords.forEach(r => {
+      const cat = r.classified.category || "Other Indirect";
+      grouping[cat] = (grouping[cat] || 0) + r.amountInINR;
+    });
+
+    let dominantOverhead = "—";
+    let dominantOverheadSpent = 0;
+    Object.entries(grouping).forEach(([group, spent]) => {
+      if (spent > dominantOverheadSpent) {
+        dominantOverheadSpent = spent;
+        dominantOverhead = group;
+      }
+    });
+
+    const dominantOverheadPercent = indirectTotalINR > 0 
+      ? (dominantOverheadSpent / indirectTotalINR) * 100 
+      : 0;
+
+    const hasDominantWarning = dominantOverheadPercent > 50;
+
+    interface FlaggedOverhead {
+      name: string;
+      spend: number;
+      ratio: number;
+    }
+
+    const flaggedOverheadCategories: FlaggedOverhead[] = Object.entries(grouping)
+      .map(([name, spend]): FlaggedOverhead => {
         const ratio = indirectTotalINR > 0 ? (spend / indirectTotalINR) * 100 : 0;
         return { name, spend, ratio };
       })
-      .filter(c => c.ratio > 20.0)
-      .sort((a, b) => b.ratio - a.ratio);
+      .filter((c: FlaggedOverhead) => c.ratio > 20.0)
+      .sort((a: FlaggedOverhead, b: FlaggedOverhead) => b.ratio - a.ratio);
 
     return {
       indirectTotalINR,
+      indirectPercentOfOutflow,
       overheadRatio,
+      indirectMomChangePercent,
+      dominantOverhead,
+      dominantOverheadSpent,
+      dominantOverheadPercent,
+      hasDominantWarning,
       flaggedOverheadCategories,
       totalBusinessOutflowINR
     };
-  }, [filteredRecords, records]);
+  }, [filteredRecords, businessRecords, selectedEntities]);
 
   const momTrends = useMemo(() => {
     const now = new Date();
@@ -298,6 +379,7 @@ function IndirectCostPage() {
         </header>
 
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          {/* Card 1: Total Indirect Cost */}
           <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
             <div className="p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]">
               <Scale className="w-6 h-6" />
@@ -307,43 +389,116 @@ function IndirectCostPage() {
               <div className="text-2xl font-bold tracking-tight mt-0.5">
                 {formatCurrency(stats.indirectTotalINR, "INR")}
               </div>
+              <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1.5">
+                <span className={cn(
+                  "inline-block w-2 h-2 rounded-full", 
+                  stats.indirectPercentOfOutflow < 25 
+                    ? "bg-emerald-500 shadow-[0_0_6px_#10B981]" 
+                    : stats.indirectPercentOfOutflow <= 35 
+                    ? "bg-amber-500 shadow-[0_0_6px_#F59E0B]" 
+                    : "bg-red-500 shadow-[0_0_6px_#EF4444]"
+                )} />
+                <span className={cn(
+                  "font-semibold",
+                  stats.indirectPercentOfOutflow < 25 
+                    ? "text-emerald-400" 
+                    : stats.indirectPercentOfOutflow <= 35 
+                    ? "text-amber-400" 
+                    : "text-red-400"
+                )}>
+                  {stats.indirectPercentOfOutflow.toFixed(1)}% of total business outflow
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className={`card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-all duration-350 hover:translate-y-[-2px] ${
-            isOverheadCritical ? "border-red-500/40 shadow-[0_0_12px_-4px_rgba(239,68,68,0.25)] bg-red-500/[0.015]" : "border-border"
-          }`}>
-            <div className={`p-3.5 rounded-lg ${isOverheadCritical ? "bg-red-500/10 text-red-400" : "bg-[rgba(212,175,55,0.08)] text-[var(--primary)]"}`}>
+          {/* Card 2: Overhead Ratio with interactive floating tooltip */}
+          <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
+            <div className={cn(
+              "p-3.5 rounded-lg",
+              stats.overheadRatio < 25 
+                ? "bg-emerald-500/8 text-emerald-500" 
+                : stats.overheadRatio <= 35 
+                ? "bg-amber-500/8 text-amber-500" 
+                : "bg-red-500/8 text-red-500"
+            )}>
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Overhead Ratio</div>
-              <div className={`text-2xl font-bold tracking-tight mt-0.5 ${isOverheadCritical ? "text-red-400" : "text-foreground"}`}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Overhead Ratio</span>
+                <div className="relative group cursor-pointer inline-flex items-center">
+                  <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/60 hover:text-muted-foreground" />
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 p-2.5 text-[10px] font-medium leading-relaxed bg-[#0E1629] border border-[rgba(212,175,55,0.4)] text-slate-200 rounded-lg shadow-[0_10px_25px_-5px_rgba(0,0,0,0.5)] z-50 text-center transition-all duration-200">
+                    Healthy range for manufacturing: below 30%
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#0E1629]" />
+                  </div>
+                </div>
+              </div>
+              <div className={cn(
+                "text-2xl font-bold tracking-tight mt-0.5",
+                stats.overheadRatio < 25 
+                  ? "text-emerald-400" 
+                  : stats.overheadRatio <= 35 
+                  ? "text-amber-400" 
+                  : "text-red-400"
+              )}>
                 {stats.overheadRatio.toFixed(1)}%
               </div>
-            </div>
-          </div>
-
-          <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
-            <div className="p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Top Driver</div>
-              <div className="text-sm font-semibold tracking-tight truncate mt-1 text-[var(--primary)]">
-                {momTrends.length > 0 ? momTrends[0].category : "—"}
+              <div className="text-[10px] text-muted-foreground mt-1">
+                Indirect ÷ (Direct + Indirect)
               </div>
             </div>
           </div>
 
+          {/* Card 3: Month-on-Month Change */}
           <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
-            <div className="p-3.5 rounded-lg bg-[rgba(16,185,129,0.08)] text-emerald-500">
-              <ShieldCheck className="w-6 h-6" />
+            <div className={cn(
+              "p-3.5 rounded-lg",
+              stats.indirectMomChangePercent <= 0 
+                ? "bg-emerald-500/8 text-emerald-500" 
+                : "bg-red-500/8 text-red-500"
+            )}>
+              <TrendingUp className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Audit Status</div>
-              <div className="text-2xl font-bold tracking-tight mt-0.5 text-emerald-500">100%</div>
-              <div className="text-[10px] text-muted-foreground">All Overheads Verified</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Month-on-Month Change</div>
+              <div className={cn(
+                "text-2xl font-bold tracking-tight mt-0.5",
+                stats.indirectMomChangePercent <= 0 
+                  ? "text-emerald-400" 
+                  : "text-red-400"
+              )}>
+                {stats.indirectMomChangePercent >= 0 ? "+" : ""}{stats.indirectMomChangePercent.toFixed(1)}%
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-1">
+                vs previous month
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: Dominant Overhead with red warning review flag badge */}
+          <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px] min-w-0">
+            <div className={cn(
+              "p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]",
+              stats.hasDominantWarning && "bg-red-500/8 text-red-500"
+            )}>
+              {stats.hasDominantWarning ? <Flag className="w-6 h-6 animate-pulse" /> : <Scale className="w-6 h-6" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Dominant Overhead</div>
+              <div className="text-sm font-semibold tracking-tight truncate mt-1 text-[var(--primary)]">
+                {stats.dominantOverhead}
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                {formatCurrency(stats.dominantOverheadSpent, "INR")} ({stats.dominantOverheadPercent.toFixed(1)}%)
+              </div>
+              {stats.hasDominantWarning && (
+                <div className="text-[9px] font-bold text-red-400 flex items-center gap-1 mt-1 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded w-max animate-pulse">
+                  <Flag className="w-3 h-3" />
+                  Review Required
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -378,7 +533,7 @@ function IndirectCostPage() {
               {stats.flaggedOverheadCategories.length === 0 ? (
                 <div className="text-xs text-emerald-400 p-4 text-center bg-emerald-500/[0.02] border border-emerald-500/10 rounded-lg">✓ No categories exceed 20% limit.</div>
               ) : (
-                stats.flaggedOverheadCategories.map((c) => (
+                stats.flaggedOverheadCategories.map((c: { name: string; spend: number; ratio: number }) => (
                   <div key={c.name} className="border border-red-500/20 bg-red-500/[0.015] p-3 rounded-lg flex justify-between text-xs">
                     <span className="font-bold truncate">{c.name}</span>
                     <span className="text-red-400 font-bold">{c.ratio.toFixed(0)}%</span>

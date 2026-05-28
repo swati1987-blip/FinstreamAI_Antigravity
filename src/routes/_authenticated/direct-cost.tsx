@@ -18,7 +18,8 @@ import {
   Package,
   Zap,
   Droplet,
-  Users
+  Users,
+  AlertTriangle
 } from "lucide-react";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { supabase } from "@/integrations/supabase/client";
@@ -178,27 +179,62 @@ function DirectCostPage() {
     );
     const costOfProductionINR = copRecords.reduce((acc, curr) => acc + curr.amountInINR, 0);
 
-    // Top direct cost driver per group
+    // Month-on-Month Change: compare total direct cost current month vs previous month
+    const now = new Date();
+    const currentMonthStart = startOfMonth(now);
+    const currentMonthEnd = endOfMonth(now);
+    const lastMonthStart = startOfMonth(subMonths(now, 1));
+    const lastMonthEnd = endOfMonth(subMonths(now, 1));
+
+    let currentMonthDirectINR = 0;
+    let lastMonthDirectINR = 0;
+
+    filteredRecords.forEach(r => {
+      const dateObj = r.invoiceDate;
+      if (dateObj >= currentMonthStart && dateObj <= currentMonthEnd) {
+        currentMonthDirectINR += r.amountInINR;
+      } else if (dateObj >= lastMonthStart && dateObj <= lastMonthEnd) {
+        lastMonthDirectINR += r.amountInINR;
+      }
+    });
+
+    let directMomChangePercent = 0;
+    if (lastMonthDirectINR > 0) {
+      directMomChangePercent = ((currentMonthDirectINR - lastMonthDirectINR) / lastMonthDirectINR) * 100;
+    } else if (currentMonthDirectINR > 0) {
+      directMomChangePercent = 100;
+    }
+
+    // Largest Cost Group
     const grouping: Record<string, number> = {};
     filteredRecords.forEach(r => {
       grouping[r.classified.category] = (grouping[r.classified.category] || 0) + r.amountInINR;
     });
     
-    let topDriver = "—";
-    let topDriverSpent = 0;
+    let largestGroup = "—";
+    let largestGroupSpent = 0;
     Object.entries(grouping).forEach(([group, spent]) => {
-      if (spent > topDriverSpent) {
-        topDriverSpent = spent;
-        topDriver = group;
+      if (spent > largestGroupSpent) {
+        largestGroupSpent = spent;
+        largestGroup = group;
       }
     });
+
+    const largestGroupPercent = directTotalINR > 0 
+      ? (largestGroupSpent / directTotalINR) * 100 
+      : 0;
+
+    const hasConcentrationRisk = largestGroupPercent > 90;
 
     return {
       directTotalINR,
       directPercentOfOutflow,
       costOfProductionINR,
-      topDriver,
-      topDriverSpent,
+      directMomChangePercent,
+      largestGroup,
+      largestGroupSpent,
+      largestGroupPercent,
+      hasConcentrationRisk,
       totalBusinessOutflowINR
     };
   }, [filteredRecords, businessRecords, selectedEntities]);
@@ -317,7 +353,7 @@ function DirectCostPage() {
 
         {/* Stats Grid */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          {/* Card 1: Total Direct Cost + % of total outflow */}
+          {/* Card 1: Total Direct Cost */}
           <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
             <div className="p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]">
               <Coins className="w-6 h-6" />
@@ -327,55 +363,95 @@ function DirectCostPage() {
               <div className="text-2xl font-bold tracking-tight mt-0.5">
                 {formatCurrency(stats.directTotalINR, "INR")}
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
-                {stats.directPercentOfOutflow.toFixed(1)}% of business outflow
+              <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1.5">
+                <span className={cn(
+                  "inline-block w-2 h-2 rounded-full", 
+                  stats.directPercentOfOutflow > 60 
+                    ? "bg-emerald-500 shadow-[0_0_6px_#10B981]" 
+                    : stats.directPercentOfOutflow >= 50 
+                    ? "bg-amber-500 shadow-[0_0_6px_#F59E0B]" 
+                    : "bg-red-500 shadow-[0_0_6px_#EF4444]"
+                )} />
+                <span className={cn(
+                  "font-semibold",
+                  stats.directPercentOfOutflow > 60 
+                    ? "text-emerald-400" 
+                    : stats.directPercentOfOutflow >= 50 
+                    ? "text-amber-400" 
+                    : "text-red-400"
+                )}>
+                  {stats.directPercentOfOutflow.toFixed(1)}% of total business outflow
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Card 2: Cost of Production card */}
+          {/* Card 2: Core Production Cost (COP) */}
           <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
             <div className="p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]">
               <Building2 className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cost of Production (COP)</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Core Production Cost (COP)</div>
               <div className="text-2xl font-bold tracking-tight mt-0.5">
                 {formatCurrency(stats.costOfProductionINR, "INR")}
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
-                RM + Labour + Electricity + Water
+              <div className="text-[10px] text-muted-foreground mt-1 font-medium">
+                {stats.directTotalINR > 0 
+                  ? ((stats.costOfProductionINR / stats.directTotalINR) * 100).toFixed(1) 
+                  : "0.0"}% of Total Direct Cost
               </div>
             </div>
           </div>
 
-          {/* Card 3: Top direct cost driver card */}
+          {/* Card 3: Month-on-Month Change */}
           <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
-            <div className="p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]">
+            <div className={cn(
+              "p-3.5 rounded-lg",
+              stats.directMomChangePercent <= 0 
+                ? "bg-emerald-500/8 text-emerald-500" 
+                : "bg-red-500/8 text-red-500"
+            )}>
               <TrendingUp className="w-6 h-6" />
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Top Direct Cost Driver</div>
-              <div className="text-sm font-semibold tracking-tight truncate mt-1 text-[var(--primary)]">
-                {stats.topDriver}
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Month-on-Month Change</div>
+              <div className={cn(
+                "text-2xl font-bold tracking-tight mt-0.5",
+                stats.directMomChangePercent <= 0 
+                  ? "text-emerald-400" 
+                  : "text-red-400"
+              )}>
+                {stats.directMomChangePercent >= 0 ? "+" : ""}{stats.directMomChangePercent.toFixed(1)}%
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
-                {formatCurrency(stats.topDriverSpent, "INR")} spend
+              <div className="text-[10px] text-muted-foreground mt-1">
+                vs previous month
               </div>
             </div>
           </div>
 
-          {/* Card 4: Verification Status */}
-          <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px]">
-            <div className="p-3.5 rounded-lg bg-[rgba(16,185,129,0.08)] text-emerald-500">
-              <ShieldCheck className="w-6 h-6" />
+          {/* Card 4: Largest Cost Group */}
+          <div className="card-luxury p-5 rounded-xl bg-card border flex items-center gap-4 transition-transform hover:translate-y-[-2px] min-w-0">
+            <div className={cn(
+              "p-3.5 rounded-lg bg-[rgba(212,175,55,0.08)] text-[var(--primary)]",
+              stats.hasConcentrationRisk && "bg-amber-500/8 text-amber-500"
+            )}>
+              {stats.hasConcentrationRisk ? <AlertTriangle className="w-6 h-6 animate-pulse" /> : <Package className="w-6 h-6" />}
             </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Production Verification</div>
-              <div className="text-2xl font-bold tracking-tight mt-0.5 text-emerald-500">
-                100%
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground truncate">Largest Cost Group</div>
+              <div className="text-sm font-semibold tracking-tight truncate mt-1 text-[var(--primary)]">
+                {stats.largestGroup}
               </div>
-              <div className="text-[10px] text-muted-foreground">Factory Floor Audited</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                {formatCurrency(stats.largestGroupSpent, "INR")} ({stats.largestGroupPercent.toFixed(1)}%)
+              </div>
+              {stats.hasConcentrationRisk && (
+                <div className="text-[9px] font-bold text-amber-400 flex items-center gap-1 mt-1 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded w-max animate-pulse">
+                  <AlertTriangle className="w-3 h-3" />
+                  Concentration Risk
+                </div>
+              )}
             </div>
           </div>
         </section>

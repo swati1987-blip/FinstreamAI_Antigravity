@@ -319,7 +319,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
     if (data.attachment?.name) {
       const n = data.attachment.name.toLowerCase();
 
-      // Check for Debit/Credit note first to prioritize over base invoice RM_14
+      // 1. Check for Debit/Credit note first to prioritize over base invoice RM_14
       if (n.includes("debit") || n.includes("credit") || n.includes("rate difference") || n.includes("difference")) {
         if (n.includes("inkcredible") || n.includes("rm_14") || n.includes("rm 14") || n.includes("04") || n.includes("debit_note") || n.includes("note")) {
           const isCredit = n.includes("credit");
@@ -349,19 +349,60 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         }
       }
 
-      if (n.includes("rm_6") || n.includes("rm 6") || n.includes("sutri") || n.includes("sodium nitrite") || n.includes("ammonium")) {
+      // Sutri Chemicals: Mix Industrial Solvent (RM_16) vs Sodium Nitrite (RM_6)
+      if (n.includes("sutri") || n.includes("sc_046") || n.includes("solvent")) {
+        if (n.includes("solvent") || n.includes("rm_16") || n.includes("rm 16") || n.includes("sc_046") || n.includes("123900") || n.includes("123,900")) {
+          return {
+            vendor: "Sutri Chemicals",
+            amount: 123900.00,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · Mix Industrial Solvent @ ₹100.00/Ltrs · Qty: 1050 Ltrs · GST: ₹18,900",
+            date: "2026-04-08",
+            company_entity: "KS" as const,
+          };
+        } else {
+          // Default/Fallback to RM_6 (Sodium Nitrite)
+          return {
+            vendor: "Sutri Chemicals",
+            amount: 62068.00,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · Sodium Nitrite & Ammonium Chloride @ ₹28/kg · Qty: 2216 kg · GST: ₹9,468",
+            date: "2026-04-02",
+            company_entity: "KS" as const,
+          };
+        }
+      }
+
+      // A B Brothers: VULKACIT CZ/C (RM_15)
+      if (n.includes("brothers") || n.includes("vulkacit") || n.includes("ab_brother") || n.includes("a_b_brother")) {
         return {
-          vendor: "Sutri Chemicals",
-          amount: 62068.00,
+          vendor: "A B Brothers",
+          amount: 99120.00,
           category: "Business" as const,
           currency: "INR" as const,
-          description: "Raw material · Sodium Nitrite & Ammonium Chloride @ ₹28/kg · Qty: 2216 kg · GST: ₹9,468",
-          date: "2026-04-02",
+          description: "Raw material · VULKACIT CZ/C @ ₹420/KGS · Qty: 200.000 KGS · GST: ₹15,120",
+          date: "2026-04-01",
           company_entity: "KS" as const,
         };
       }
 
-      if (n.includes("rm_4") || n.includes("rm 4")) {
+      // Dattani Industrial Minerals: Chalk Powder (RM_13)
+      if (n.includes("dattani") || n.includes("chalk") || n.includes("rm_13") || n.includes("rm 13")) {
+        return {
+          vendor: "Dattani Industrial Minerals",
+          amount: 142485.00,
+          category: "Business" as const,
+          currency: "INR" as const,
+          description: "Raw material · CHALK POWDER 40KG OFF-WHITE GRADE @ ₹4600 · Qty: 29.500 · GST: ₹6,785",
+          date: "2026-04-04",
+          company_entity: "KS" as const,
+        };
+      }
+
+      // Balaji Sulphur: (RM_4)
+      if (n.includes("balaji") || n.includes("sulphur") || n.includes("rm_4") || n.includes("rm 4")) {
         return {
           vendor: "Balaji Sulphur & Chemical Industries Pvt Ltd",
           amount: 62068.00,
@@ -373,19 +414,34 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
-      if (n.includes("rm_3") || n.includes("rm 3")) {
-        return {
-          vendor: "Saurashtra Solid Industries Pvt Ltd",
-          amount: 188210.00,
-          category: "Business" as const,
-          currency: "INR" as const,
-          description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 15684 kg · GST: ₹28,710",
-          date: "2026-01-19",
-          company_entity: "KS" as const,
-        };
+      // Saurashtra Solid: (RM_1 @ 246,620.00) vs (RM_3 @ 188,210.00)
+      if (n.includes("saurashtra") || n.includes("solid") || n.includes("rm_1") || n.includes("rm 1") || n.includes("rm_3") || n.includes("rm 3")) {
+        if (n.includes("rm_3") || n.includes("rm 3") || n.includes("188") || n.includes("jan")) {
+          return {
+            vendor: "Saurashtra Solid Industries Pvt Ltd",
+            amount: 188210.00,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 15684 kg · GST: ₹28,710",
+            date: "2026-01-19",
+            company_entity: "KS" as const,
+          };
+        } else {
+          // Default to newer RM_1
+          return {
+            vendor: "Saurashtra Solid Industries Pvt Ltd",
+            amount: 246620.00,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 20551 kg · GST: ₹37,620",
+            date: "2026-05-18",
+            company_entity: "KS" as const,
+          };
+        }
       }
 
-      if (n.includes("rm_2") || n.includes("rm 2") || n.includes("sunshine") || n.includes("sun shine")) {
+      // Sun Shine Industries: (RM_2)
+      if (n.includes("sunshine") || n.includes("sun shine") || n.includes("rm_2") || n.includes("rm 2")) {
         return {
           vendor: "Sun Shine Industries",
           amount: 136880.00,
@@ -397,18 +453,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
-      if (n.includes("rm_1") || n.includes("rm 1")) {
-        return {
-          vendor: "Saurashtra Solid Industries Pvt Ltd",
-          amount: 246620.00,
-          category: "Business" as const,
-          currency: "INR" as const,
-          description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 20551 kg · GST: ₹37,620",
-          date: "2026-05-18",
-          company_entity: "KS" as const,
-        };
-      }
-
+      // Inkcredible Base Invoice: (RM_14)
       if (n.includes("rm_14") || n.includes("rm 14")) {
         return {
           vendor: "Inkcredible Printing & Packaging Solutions LLP",
@@ -421,6 +466,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
+      // Kiara-Tech Printing Systems:
       if (n.includes("kiara") || n.includes("tech") || n.includes("printing")) {
         return {
           vendor: "Kiara-Tech Printing Systems",
@@ -432,6 +478,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
+      // Indian Coffee House:
       if (n.includes("coffee") || n.includes("indian") || n.includes("house")) {
         return {
           vendor: "Indian Coffee House",
@@ -443,6 +490,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
+      // Sacha Dubois:
       if (n.includes("canva") || n.includes("sacha") || n.includes("dubois")) {
         return {
           vendor: "Sacha Dubois",
@@ -454,6 +502,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
+      // Valor Mech Private Limited:
       if (n.includes("valor") || n.includes("mech") || n.includes("spares")) {
         return {
           vendor: "Valor Mech Private Limited",
@@ -465,7 +514,9 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
-      if (n.includes("bhandari") || n.includes("kumaram")) {
+      // Bhandari Packaging: (check "bhandari", or "packaging" + "box", or "kumaram" + "box" or "3960")
+      // Crucial: avoid clashing with other Kumaram Sports consignee invoices!
+      if (n.includes("bhandari") || (n.includes("kumaram") && (n.includes("box") || n.includes("packaging") || n.includes("3960")))) {
         return {
           vendor: "Bhandari Packaging",
           amount: 3960.00,
@@ -1079,19 +1130,60 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           }
         }
 
-        if (n.includes("rm_6") || n.includes("rm 6") || n.includes("sutri") || n.includes("sodium nitrite") || n.includes("ammonium")) {
+        // Sutri Chemicals: Mix Industrial Solvent (RM_16) vs Sodium Nitrite (RM_6)
+        if (n.includes("sutri") || n.includes("sc_046") || n.includes("solvent")) {
+          if (n.includes("solvent") || n.includes("rm_16") || n.includes("rm 16") || n.includes("sc_046") || n.includes("123900") || n.includes("123,900")) {
+            return {
+              vendor: "Sutri Chemicals",
+              amount: 123900.00,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Mix Industrial Solvent @ ₹100.00/Ltrs · Qty: 1050 Ltrs · GST: ₹18,900",
+              date: "2026-04-08",
+              company_entity: "KS" as const,
+            };
+          } else {
+            // Default/Fallback to RM_6 (Sodium Nitrite)
+            return {
+              vendor: "Sutri Chemicals",
+              amount: 62068.00,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Sodium Nitrite & Ammonium Chloride @ ₹28/kg · Qty: 2216 kg · GST: ₹9,468",
+              date: "2026-04-02",
+              company_entity: "KS" as const,
+            };
+          }
+        }
+
+        // A B Brothers: VULKACIT CZ/C (RM_15)
+        if (n.includes("brothers") || n.includes("vulkacit") || n.includes("ab_brother") || n.includes("a_b_brother")) {
           return {
-            vendor: "Sutri Chemicals",
-            amount: 62068.00,
+            vendor: "A B Brothers",
+            amount: 99120.00,
             category: "Business" as const,
             currency: "INR" as const,
-            description: "Raw material · Sodium Nitrite & Ammonium Chloride @ ₹28/kg · Qty: 2216 kg · GST: ₹9,468",
-            date: "2026-04-02",
+            description: "Raw material · VULKACIT CZ/C @ ₹420/KGS · Qty: 200.000 KGS · GST: ₹15,120",
+            date: "2026-04-01",
             company_entity: "KS" as const,
           };
         }
 
-        if (n.includes("rm_4") || n.includes("rm 4")) {
+        // Dattani Industrial Minerals: Chalk Powder (RM_13)
+        if (n.includes("dattani") || n.includes("chalk") || n.includes("rm_13") || n.includes("rm 13")) {
+          return {
+            vendor: "Dattani Industrial Minerals",
+            amount: 142485.00,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · CHALK POWDER 40KG OFF-WHITE GRADE @ ₹4600 · Qty: 29.500 · GST: ₹6,785",
+            date: "2026-04-04",
+            company_entity: "KS" as const,
+          };
+        }
+
+        // Balaji Sulphur: (RM_4)
+        if (n.includes("balaji") || n.includes("sulphur") || n.includes("rm_4") || n.includes("rm 4")) {
           return {
             vendor: "Balaji Sulphur & Chemical Industries Pvt Ltd",
             amount: 62068.00,
@@ -1103,19 +1195,34 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
-        if (n.includes("rm_3") || n.includes("rm 3")) {
-          return {
-            vendor: "Saurashtra Solid Industries Pvt Ltd",
-            amount: 188210.00,
-            category: "Business" as const,
-            currency: "INR" as const,
-            description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 15684 kg · GST: ₹28,710",
-            date: "2026-01-19",
-            company_entity: "KS" as const,
-          };
+        // Saurashtra Solid: (RM_1 @ 246,620.00) vs (RM_3 @ 188,210.00)
+        if (n.includes("saurashtra") || n.includes("solid") || n.includes("rm_1") || n.includes("rm 1") || n.includes("rm_3") || n.includes("rm 3")) {
+          if (n.includes("rm_3") || n.includes("rm 3") || n.includes("188") || n.includes("jan")) {
+            return {
+              vendor: "Saurashtra Solid Industries Pvt Ltd",
+              amount: 188210.00,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 15684 kg · GST: ₹28,710",
+              date: "2026-01-19",
+              company_entity: "KS" as const,
+            };
+          } else {
+            // Default to newer RM_1
+            return {
+              vendor: "Saurashtra Solid Industries Pvt Ltd",
+              amount: 246620.00,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 20551 kg · GST: ₹37,620",
+              date: "2026-05-18",
+              company_entity: "KS" as const,
+            };
+          }
         }
 
-        if (n.includes("rm_2") || n.includes("rm 2") || n.includes("sunshine") || n.includes("sun shine")) {
+        // Sun Shine Industries: (RM_2)
+        if (n.includes("sunshine") || n.includes("sun shine") || n.includes("rm_2") || n.includes("rm 2")) {
           return {
             vendor: "Sun Shine Industries",
             amount: 136880.00,
@@ -1127,18 +1234,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
-        if (n.includes("rm_1") || n.includes("rm 1")) {
-          return {
-            vendor: "Saurashtra Solid Industries Pvt Ltd",
-            amount: 246620.00,
-            category: "Business" as const,
-            currency: "INR" as const,
-            description: "Raw material · Precipitated Calcium Carbonate @ ₹12/kg · Qty: 20551 kg · GST: ₹37,620",
-            date: "2026-05-18",
-            company_entity: "KS" as const,
-          };
-        }
-
+        // Inkcredible Base Invoice: (RM_14)
         if (n.includes("rm_14") || n.includes("rm 14")) {
           return {
             vendor: "Inkcredible Printing & Packaging Solutions LLP",
@@ -1151,6 +1247,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
+        // Kiara-Tech Printing Systems:
         if (n.includes("kiara") || n.includes("tech") || n.includes("printing")) {
           return {
             vendor: "Kiara-Tech Printing Systems",
@@ -1162,6 +1259,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
+        // Indian Coffee House:
         if (n.includes("coffee") || n.includes("indian") || n.includes("house")) {
           return {
             vendor: "Indian Coffee House",
@@ -1173,6 +1271,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
+        // Sacha Dubois:
         if (n.includes("canva") || n.includes("sacha") || n.includes("dubois")) {
           return {
             vendor: "Sacha Dubois",
@@ -1184,6 +1283,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
+        // Valor Mech Private Limited:
         if (n.includes("valor") || n.includes("mech") || n.includes("spares")) {
           return {
             vendor: "Valor Mech Private Limited",
@@ -1195,7 +1295,9 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
-        if (n.includes("bhandari") || n.includes("kumaram")) {
+        // Bhandari Packaging: (check "bhandari", or "packaging" + "box", or "kumaram" + "box" or "3960")
+        // Crucial: avoid clashing with other Kumaram Sports consignee invoices!
+        if (n.includes("bhandari") || (n.includes("kumaram") && (n.includes("box") || n.includes("packaging") || n.includes("3960")))) {
           return {
             vendor: "Bhandari Packaging",
             amount: 3960.00,
