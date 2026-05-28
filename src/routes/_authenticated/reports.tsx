@@ -51,7 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor, normalizeCategory } from "@/lib/utils";
+import { cn, classifyExpense, parseDescriptionDetails, resolveEntityFromVendor, normalizeCategory, cleanVendorName } from "@/lib/utils";
 
 function MarkdownRenderer({ text }: { text: string }) {
   const lines = text.split("\n");
