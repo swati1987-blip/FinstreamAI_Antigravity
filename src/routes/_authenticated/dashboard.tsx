@@ -52,6 +52,202 @@ import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
 import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor } from "@/lib/utils";
 
+async function mergeDebitOrCreditNote(
+  supabaseClient: any,
+  parsed: {
+    vendor: string;
+    amount: number;
+    description?: string;
+    debit_note_target?: string;
+    id?: string;
+    date?: string;
+  },
+  noteDate: Date
+): Promise<boolean> {
+  const targetRef = parsed.debit_note_target || "";
+  const desc = parsed.description || "";
+  // Check if this is a Credit Note or a Debit Note
+  const isCredit = /credit/i.test(desc) || /credit/i.test(targetRef);
+  const noteType = isCredit ? "Credit Note" : "Debit Note";
+
+  console.log(`[Note Linker] Processing ${noteType} for vendor "${parsed.vendor}". Target ref: "${targetRef}"`);
+
+  // 1. Fetch all candidate expenses
+  const { data: allExpenses, error } = await supabaseClient
+    .from("expenses")
+    .select("*");
+
+  if (error || !allExpenses || allExpenses.length === 0) {
+    console.error("[Note Linker] Error fetching expenses or database is empty:", error);
+    return false;
+  }
+
+  // Vendor comparison helper: clean names, remove punctuation, check exact or substring
+  const isVendorMatch = (v1: string | null | undefined, v2: string | null | undefined): boolean => {
+    if (!v1 || !v2) return false;
+    const c1 = cleanVendorName(v1).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const c2 = cleanVendorName(v2).toLowerCase().replace(/[^a-z0-9]/g, "");
+    return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+  };
+
+  // Reference comparison helper: does candidate contain targetRef?
+  const isReferenceMatch = (candidateText: string, ref: string): boolean => {
+    if (!ref) return false;
+    const cleanText = candidateText.toLowerCase();
+    const cleanRef = ref.toLowerCase();
+    if (cleanText.includes(cleanRef)) return true;
+    
+    // Check if target reference has a number and candidate matches that number with invoice clues
+    const numMatch = cleanRef.match(/\d+/);
+    if (numMatch) {
+      const numStr = numMatch[0];
+      if ((cleanText.includes("inv") || cleanText.includes("invoice") || cleanText.includes("no")) && cleanText.includes(numStr)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  let bestCandidate: any = null;
+  let bestScore = -1000;
+  const noteDescLower = desc.toLowerCase();
+
+  for (const exp of allExpenses) {
+    // Don't link against the note itself if it has already been saved
+    if (parsed.id && exp.id === parsed.id) continue;
+
+    // Don't match if it's already a debit/credit note applied
+    if (exp.raw_text && (exp.raw_text.includes("[Debit Note") || exp.raw_text.includes("[Credit Note"))) {
+      continue;
+    }
+
+    // 1. Vendor Match is mandatory
+    if (!isVendorMatch(exp.vendor, parsed.vendor)) continue;
+
+    let score = 0;
+
+    // 2. Reference Match (high weight)
+    if (targetRef) {
+      if (isReferenceMatch(exp.raw_text || "", targetRef) || isReferenceMatch(exp.vendor || "", targetRef)) {
+        score += 200;
+      }
+    }
+
+    // 3. Product/Keyword Match (medium weight)
+    const expDescLower = (exp.raw_text || "").toLowerCase();
+    const ignoreWords = ["debit", "credit", "note", "rate", "difference", "against", "invoice", "qty", "gst", "applied", "raw", "material", "materials", "total", "amount", "price"];
+    const noteWords = noteDescLower.split(/[^a-zA-Z0-9]/).filter(w => w.length >= 3 && !ignoreWords.includes(w));
+    let overlapCount = 0;
+    for (const word of noteWords) {
+      if (expDescLower.includes(word)) {
+        overlapCount++;
+      }
+    }
+    score += overlapCount * 30;
+
+    // 4. Date Proximity Match
+    const expDate = exp.date ? new Date(exp.date) : new Date(exp.created_at);
+    const diffTime = noteDate.getTime() - expDate.getTime();
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+    if (diffDays >= 0) {
+      // Prioritize bills in the past relative to the note
+      score += 50;
+      if (diffDays <= 30) {
+        score += (30 - diffDays) * 2; // Closer is better
+      } else {
+        score += Math.max(0, 10 - (diffDays - 30) / 10);
+      }
+    } else {
+      // Future bills are penalized but still possible matches in case of delay
+      score -= Math.abs(diffDays) * 2;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = exp;
+    }
+  }
+
+  // Minimum score threshold of 30 ensures we have a vendor match plus either a date match or keyword match
+  if (!bestCandidate || bestScore < 30) {
+    console.log(`[Note Linker] No confident candidate invoice found for vendor "${parsed.vendor}". Best score: ${bestScore}`);
+    return false;
+  }
+
+  console.log(`[Note Linker] Selected original invoice (ID: ${bestCandidate.id}) with score: ${bestScore}`);
+
+  const origAmt = Number(bestCandidate.amount) || 0;
+  const origDesc = bestCandidate.raw_text || "";
+
+  // Check if already applied
+  const appliedMarker = `[${noteType}`;
+  if (origDesc.includes(appliedMarker)) {
+    console.log(`[Note Linker] ${noteType} already applied to invoice ${bestCandidate.id}`);
+    return true; 
+  }
+
+  let updatedDesc = origDesc;
+
+  // Rate Adjustment logic
+  const rateMatch = origDesc.match(/@\s*₹([\d,.]+)/);
+  if (rateMatch) {
+    const oldRate = parseFloat(rateMatch[1].replace(/,/g, ""));
+    let rateChange = 0;
+
+    // A. Check for explicit rate in note description (e.g. "@ ₹0.20" or "@ ₹0.20/box")
+    const rateDiffMatch = desc.match(/@\s*₹([\d,.]+)/);
+    if (rateDiffMatch) {
+      rateChange = parseFloat(rateDiffMatch[1].replace(/,/g, ""));
+      console.log(`[Note Linker] Extracted explicit rate change: ₹${rateChange}`);
+    } else {
+      // B. Compute rate difference from note amount, quantity, and GST
+      const qtyMatch = desc.match(/Qty:\s*([\d,]+)/i);
+      const qty = qtyMatch ? parseInt(qtyMatch[1].replace(/,/g, ""), 10) : 1;
+
+      const gstMatch = desc.match(/GST:\s*₹([\d,]+)/i);
+      const gstAmt = gstMatch ? parseFloat(gstMatch[1].replace(/,/g, "")) : 0;
+      const baseNoteAmt = parsed.amount - gstAmt;
+      rateChange = baseNoteAmt / qty;
+      console.log(`[Note Linker] Calculated rate change: (Amount: ${parsed.amount} - GST: ${gstAmt}) / Qty: ${qty} = ₹${rateChange.toFixed(4)}`);
+    }
+
+    if (rateChange > 0) {
+      const newRate = isCredit
+        ? Math.max(0, oldRate - rateChange).toFixed(2)
+        : (oldRate + rateChange).toFixed(2);
+
+      updatedDesc = updatedDesc.replace(
+        `@ ₹${rateMatch[1]}`,
+        `@ ₹${newRate}`
+      );
+      console.log(`[Note Linker] Updated rate description: @ ₹${rateMatch[1]} -> @ ₹${newRate}`);
+    }
+  }
+
+  // Adjust original invoice total amount: add for debit note, subtract for credit note
+  const newAmt = isCredit
+    ? Math.max(0, origAmt - parsed.amount)
+    : origAmt + parsed.amount;
+
+  const displayAmt = parsed.amount.toLocaleString("en-IN");
+  updatedDesc += ` · [${noteType} ${isCredit ? "-" : "+"}₹${displayAmt} rate difference applied]`;
+
+  console.log(`[Note Linker] Updating invoice: Amt: ${origAmt} -> ${newAmt}, Desc: "${updatedDesc}"`);
+
+  const { error: updateError } = await supabaseClient
+    .from("expenses")
+    .update({ amount: newAmt, raw_text: updatedDesc })
+    .eq("id", bestCandidate.id);
+
+  if (updateError) {
+    console.error(`[Note Linker] Error updating invoice record in DB:`, updateError);
+    return false;
+  }
+
+  return true;
+}
+
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
   head: () => ({
@@ -435,56 +631,13 @@ function Dashboard() {
         const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
         const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
-        // ── Debit Note handling: add amount to the linked invoice ──────────
-        if (parsed.debit_note_target) {
-          const target = parsed.debit_note_target.toLowerCase();
-          const { data: linkedInvoices } = await supabase
-            .from("expenses")
-            .select("*")
-            .ilike("raw_text", `%${target}%`)
-            .limit(1);
-
-          if (linkedInvoices && linkedInvoices.length > 0) {
-            const linked = linkedInvoices[0];
-            const origAmt = Number(linked.amount) || 0;
-            const origDesc = linked.raw_text || "";
-
-            // Only apply once (prevent duplicate on re-upload)
-            if (!origDesc.includes("[Debit Note")) {
-              // Update rate in the description (e.g. ₹3.80 → ₹4.00)
-              let updatedDesc = origDesc;
-              const rateMatch = origDesc.match(/@\s*₹([\d,.]+)/);
-              if (rateMatch) {
-                const oldRate = parseFloat(rateMatch[1].replace(/,/g, ""));
-                // Extract quantity from debit note description to derive per-unit rate increase
-                const qtyMatch = (parsed.description || "").match(/Qty:\s*([\d,]+)/i);
-                const qty = qtyMatch ? parseInt(qtyMatch[1].replace(/,/g, ""), 10) : 1;
-                // Debit note amount includes GST; use base amount (before GST) for rate calc
-                const gstMatch = (parsed.description || "").match(/GST:\s*₹([\d,]+)/i);
-                const gstAmt = gstMatch ? parseFloat(gstMatch[1].replace(/,/g, "")) : 0;
-                const baseDebitAmt = parsed.amount - gstAmt;
-                const rateIncrease = baseDebitAmt / qty;
-                const newRate = (oldRate + rateIncrease).toFixed(2);
-                updatedDesc = updatedDesc.replace(
-                  `@ ₹${rateMatch[1]}`,
-                  `@ ₹${newRate}`
-                );
-              }
-              updatedDesc += ` · [Debit Note +₹${parsed.amount.toLocaleString("en-IN")} rate difference applied]`;
-
-              await supabase
-                .from("expenses")
-                .update({ amount: origAmt + parsed.amount, raw_text: updatedDesc })
-                .eq("id", linked.id);
-
-              toast.success(`Debit Note (₹${parsed.amount.toLocaleString("en-IN")}) applied to linked invoice ${parsed.debit_note_target}!`);
-            } else {
-              toast.info(`Debit Note already applied to ${parsed.debit_note_target}.`);
-            }
+        // ── Debit Note / Credit Note handling: merge with linked invoice ──────────
+        if (parsed.debit_note_target || /debit|credit|rate difference/i.test(parsed.description || "")) {
+          const applied = await mergeDebitOrCreditNote(supabase, parsed, effectiveDate);
+          if (applied) {
             successCount++;
             continue;
           }
-          // If linked invoice not found, fall through and insert as a standalone entry
         }
 
         // ── Multi-item invoice: insert each line item as a separate row ───
@@ -747,49 +900,10 @@ function Dashboard() {
       const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
       const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
-      // ── Debit Note handling: add amount to the linked invoice ──────────
-      if (parsed.debit_note_target) {
-        const target = parsed.debit_note_target.toLowerCase();
-        const { data: linkedInvoices } = await supabase
-          .from("expenses")
-          .select("*")
-          .ilike("raw_text", `%${target}%`)
-          .limit(1);
-
-        if (linkedInvoices && linkedInvoices.length > 0) {
-          const linked = linkedInvoices[0];
-          const origAmt = Number(linked.amount) || 0;
-          const origDesc = linked.raw_text || "";
-
-          if (!origDesc.includes("[Debit Note")) {
-            let updatedDesc = origDesc;
-            const rateMatch = origDesc.match(/@\s*₹([\d,.]+)/);
-            if (rateMatch) {
-              const oldRate = parseFloat(rateMatch[1].replace(/,/g, ""));
-              // Extract quantity from debit note description to derive per-unit rate increase
-              const qtyMatch = (parsed.description || "").match(/Qty:\s*([\d,]+)/i);
-              const qty = qtyMatch ? parseInt(qtyMatch[1].replace(/,/g, ""), 10) : 1;
-              const gstMatch = (parsed.description || "").match(/GST:\s*₹([\d,]+)/i);
-              const gstAmt = gstMatch ? parseFloat(gstMatch[1].replace(/,/g, "")) : 0;
-              const baseDebitAmt = parsed.amount - gstAmt;
-              const rateIncrease = baseDebitAmt / qty;
-              const newRate = (oldRate + rateIncrease).toFixed(2);
-              updatedDesc = updatedDesc.replace(
-                `@ ₹${rateMatch[1]}`,
-                `@ ₹${newRate}`
-              );
-            }
-            updatedDesc += ` · [Debit Note +₹${parsed.amount.toLocaleString("en-IN")} rate difference applied]`;
-
-            await supabase
-              .from("expenses")
-              .update({ amount: origAmt + parsed.amount, raw_text: updatedDesc })
-              .eq("id", linked.id);
-
-            toast.success(`Debit Note (₹${parsed.amount.toLocaleString("en-IN")}) applied to linked invoice ${parsed.debit_note_target}!`);
-          } else {
-            toast.info(`Debit Note already applied to ${parsed.debit_note_target}.`);
-          }
+      // ── Debit Note / Credit Note handling: merge with linked invoice ──────────
+      if (parsed.debit_note_target || /debit|credit|rate difference/i.test(parsed.description || "")) {
+        const applied = await mergeDebitOrCreditNote(supabase, parsed, effectiveDate);
+        if (applied) {
           setRawText("");
           setAttachment(null);
           loadExpenses();
