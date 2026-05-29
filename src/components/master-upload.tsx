@@ -389,6 +389,30 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
           rulesData = [];
         }
 
+        // Load historic transactions from expenses table to dynamically train the rules engine on past user categorizations!
+        try {
+          const { data: pastExpenses } = await supabase
+            .from("expenses")
+            .select("vendor, category, expense_category, company_entity, amount")
+            .eq("user_id", user.id);
+
+          if (pastExpenses) {
+            pastExpenses.forEach((exp) => {
+              if (exp.vendor && exp.expense_category && exp.expense_category !== "Other expenses") {
+                rulesData.push({
+                  vendor_pattern: exp.vendor,
+                  main_category: exp.category || "Personal",
+                  company_entity: exp.company_entity || "None",
+                  expense_category: exp.expense_category,
+                  amount: exp.amount ? Number(exp.amount) : null,
+                });
+              }
+            });
+          }
+        } catch (e) {
+          console.error("[MasterUpload] Error loading historical expenses for rules engine:", e);
+        }
+
         // Tier 1: vendor+amount → ordered description list
         // e.g. "airtel|899" → [Pawan rule, Patel rule, Sanjay rule]
         const groupRulesMap = new Map<string, MemoryRule[]>();
