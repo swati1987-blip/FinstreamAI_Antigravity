@@ -1844,6 +1844,15 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
         }
       }
 
+      // Avoid conflict if the matched vendor name is identical to or contains the category name (e.g. "travel" matching category and a vendor containing "travel")
+      if (targetVendor && targetCategory) {
+        const v = targetVendor.toLowerCase();
+        const c = targetCategory.toLowerCase();
+        if (v === c || v.includes(c) || c.includes(v)) {
+          targetVendor = null;
+        }
+      }
+
       // 3.5 Detect Entity
       let targetEntity: string | null = null;
       const entityOptions = ["KS", "TI", "CPM", "AAS", "Swati", "Others", "None"];
