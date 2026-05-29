@@ -1808,6 +1808,13 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
         }
       }
 
+      // 1.5 Detect Year
+      let targetYear: number | null = null;
+      const yearMatch = query.match(/\b(202\d)\b/);
+      if (yearMatch) {
+        targetYear = parseInt(yearMatch[1], 10);
+      }
+
       // 2. Detect Category
       let targetCategory: string | null = null;
       const commonCategories = ["travel", "website", "repair", "maintenance", "telecom", "marketing", "advertising", "material", "food", "office", "personal", "business"];
@@ -1891,10 +1898,8 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
       } else if (lower.includes("average") || lower.includes("avg") || lower.includes("mean")) {
         const avg = totalCount > 0 ? totalAmount / totalCount : 0;
         reply = `📊 **Average Transaction Size:**\n\nAcross all **${totalCount} entries** in your ledger, the average transaction size is **₹${avg.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**.`;
-      } else if (lower.includes("total spend") || lower.includes("how much spent") || lower.includes("net outflow") || lower.includes("total expenses") || lower.includes("entire spend") || lower.includes("net spent") || lower.includes("outflow sum")) {
-        reply = `💵 **Aggregated Ledger Outflow:**\n\nYour total net outflow across all recorded transactions is **₹${totalAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** across **${totalCount} entries**.`;
       } else if (
-        (targetMonthNum !== null || targetCategory !== null || targetVendor !== null || targetEntity !== null) &&
+        (targetMonthNum !== null || targetYear !== null || targetCategory !== null || targetVendor !== null || targetEntity !== null) &&
         !lower.includes("budget") && !lower.includes("limit") && !lower.includes("actual")
       ) {
         // Run Dynamic Filter Query
@@ -1904,9 +1909,18 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
         if (targetMonthNum !== null) {
           filtered = filtered.filter((e) => {
             const d = e.date ? new Date(e.date) : new Date(e.created_at);
-            return !isNaN(d.getTime()) && d.getMonth() === targetMonthNum;
+            if (isNaN(d.getTime())) return false;
+            const matchesMonth = d.getMonth() === targetMonthNum;
+            const matchesYear = targetYear !== null ? d.getFullYear() === targetYear : true;
+            return matchesMonth && matchesYear;
           });
-          filterDesc.push(`in **${targetMonthName}**`);
+          filterDesc.push(`in **${targetMonthName}${targetYear !== null ? ` ${targetYear}` : ""}**`);
+        } else if (targetYear !== null) {
+          filtered = filtered.filter((e) => {
+            const d = e.date ? new Date(e.date) : new Date(e.created_at);
+            return !isNaN(d.getTime()) && d.getFullYear() === targetYear;
+          });
+          filterDesc.push(`in **${targetYear}**`);
         }
 
         if (targetCategory !== null) {
@@ -1961,6 +1975,8 @@ function ExpenseCopilot({ expenses }: { expenses: Expense[] }) {
             reply += `• **${cleanVendorName(e.vendor || "Expense")}**: ₹${Number(e.amount).toLocaleString("en-IN")} on *${displayDate}* (${normalizeCategory(e.expense_category || e.category || "Other")})\n`;
           });
         }
+      } else if (lower.includes("total spend") || lower.includes("how much spent") || lower.includes("net outflow") || lower.includes("total expenses") || lower.includes("entire spend") || lower.includes("net spent") || lower.includes("outflow sum")) {
+        reply = `💵 **Aggregated Ledger Outflow:**\n\nYour total net outflow across all recorded transactions is **₹${totalAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** across **${totalCount} entries**.`;
       } else if (lower.includes("budget") || lower.includes("limit") || lower.includes("actual")) {
         // Calculate category spent dynamically from active expenses
         const catSpent: Record<string, number> = {};

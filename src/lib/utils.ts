@@ -20,6 +20,8 @@ export const EXPENSE_CATEGORIES = [
   "Salaries & Admin",
   "Marketing & Ads",
   "Software & Tech",
+  "Telecommunication",
+  "Website",
   "General Overhead",
   "Professional & Legal",
   "Rent & Facilities",
@@ -279,18 +281,26 @@ export function classifyExpense(item: {
   }
 
   // 5. Software & Tech
-  if (["website", "admin costs", "software & tech"].some(c => c === rawCat.toLowerCase())) {
+  if (["software & tech", "software"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Admin Software";
-    if (hasDesc("website", "domain", "host", "server")) sub = "Website";
-    else if (hasDesc("saas", "saas subscription", "software", "aws", "adobe", "figma")) sub = "SaaS Subscriptions";
+    if (hasDesc("saas", "saas subscription", "software", "aws", "adobe", "figma")) sub = "SaaS Subscriptions";
     return { type: "Indirect", category: "Software & Tech", subcategory: sub };
   }
 
+  // 5b. Website
+  if (rawCat.toLowerCase() === "website") {
+    return { type: "Indirect", category: "Website", subcategory: "Website" };
+  }
+
+  // 5c. Telecommunication
+  if (["telecommunication", "telecom"].some(c => c === rawCat.toLowerCase())) {
+    return { type: "Indirect", category: "Telecommunication", subcategory: "Telecommunication" };
+  }
+
   // 6. General Overhead
-  if (["staff welfare", "telecommunication", "telecom", "general overhead"].some(c => c === rawCat.toLowerCase())) {
+  if (["staff welfare", "general overhead", "admin costs"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Office Expenses";
     if (hasDesc("welfare", "staff", "tea", "snack", "dining", "lunch")) sub = "Staff Welfare";
-    else if (hasDesc("telecom", "phone", "internet", "mobile", "wifi")) sub = "Telecommunication";
     else if (hasDesc("dining", "food", "restaurant")) sub = "Dining";
     return { type: "Indirect", category: "General Overhead", subcategory: sub };
   }
@@ -512,7 +522,9 @@ export function normalizeCategory(cat: string | null | undefined): string {
   if (trimmed === "travel" || trimmed === "travel & logistics") return "Travel & Logistics";
   if (trimmed === "admin costs" || trimmed === "salaries & admin" || trimmed === "salary admin" || trimmed === "salary") return "Salaries & Admin";
   if (trimmed === "marketing expense" || trimmed === "advertisement" || trimmed === "business promotion" || trimmed === "marketing & ads" || trimmed === "marketing") return "Marketing & Ads";
-  if (trimmed === "website" || trimmed === "telecommunication" || trimmed === "software & tech") return "Software & Tech";
+  if (trimmed === "website") return "Website";
+  if (trimmed === "telecommunication" || trimmed === "telecom") return "Telecommunication";
+  if (trimmed === "software & tech") return "Software & Tech";
   if (trimmed === "insurance" || trimmed === "legal" || trimmed === "professional & legal") return "Professional & Legal";
   if (trimmed === "taxes" || trimmed === "taxes & compliance") return "Taxes & Compliance";
   if (trimmed === "rent" || trimmed === "rent & facilities") return "Rent & Facilities";
