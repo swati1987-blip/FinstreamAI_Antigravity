@@ -16,18 +16,20 @@ export const EXPENSE_CATEGORIES = [
   "Factory-Related Expenses",
   
   // Standardized Indirect Categories
-  "Travel & Logistics",
-  "Salaries & Admin",
-  "Marketing & Ads",
-  "Software & Tech",
-  "Telecommunication",
-  "Website",
-  "General Overhead",
-  "Professional & Legal",
-  "Rent & Facilities",
-  "Taxes & Compliance",
+  "Admin Costs",
+  "Advertisement",
+  "Business Promotion",
+  "Insurance",
   "Investment & Other Assets",
-  "Other Indirect"
+  "Legal",
+  "Marketing expense",
+  "Rent",
+  "Taxes",
+  "Telecommunication",
+  "Travel",
+  "Website",
+  "Staff Welfare",
+  "Other expenses"
 ] as const;
 
 export function cleanVendorName(vendor: string | null | undefined): string {
@@ -280,27 +282,19 @@ export function classifyExpense(item: {
     return { type: "Indirect", category: "Marketing & Ads", subcategory: sub };
   }
 
-  // 5. Software & Tech
-  if (["software & tech", "software"].some(c => c === rawCat.toLowerCase())) {
+  // 5. Software & Tech / Website
+  if (["software & tech", "website", "software"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Admin Software";
-    if (hasDesc("saas", "saas subscription", "software", "aws", "adobe", "figma")) sub = "SaaS Subscriptions";
+    if (hasDesc("website", "domain", "host", "server")) sub = "Website";
+    else if (hasDesc("saas", "saas subscription", "software", "aws", "adobe", "figma")) sub = "SaaS Subscriptions";
     return { type: "Indirect", category: "Software & Tech", subcategory: sub };
   }
 
-  // 5b. Website
-  if (rawCat.toLowerCase() === "website") {
-    return { type: "Indirect", category: "Website", subcategory: "Website" };
-  }
-
-  // 5c. Telecommunication
-  if (["telecommunication", "telecom"].some(c => c === rawCat.toLowerCase())) {
-    return { type: "Indirect", category: "Telecommunication", subcategory: "Telecommunication" };
-  }
-
-  // 6. General Overhead
-  if (["staff welfare", "general overhead", "admin costs"].some(c => c === rawCat.toLowerCase())) {
+  // 6. General Overhead / Telecommunication
+  if (["staff welfare", "telecommunication", "telecom", "general overhead", "admin costs", "other expenses"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Office Expenses";
     if (hasDesc("welfare", "staff", "tea", "snack", "dining", "lunch")) sub = "Staff Welfare";
+    else if (hasDesc("telecom", "phone", "internet", "mobile", "wifi")) sub = "Telecommunication";
     else if (hasDesc("dining", "food", "restaurant")) sub = "Dining";
     return { type: "Indirect", category: "General Overhead", subcategory: sub };
   }
@@ -507,29 +501,32 @@ export function resolveEntityFromVendor(vendor: string | null | undefined, rawTe
 }
 
 export function normalizeCategory(cat: string | null | undefined): string {
-  if (!cat) return "General Overhead";
+  if (!cat) return "Other expenses";
   const trimmed = cat.trim().toLowerCase();
 
-  // Mapping legacy or alternative names to standardized categories
-  if (trimmed === "raw material") return "Raw Material";
+  // Graceful mappings for common variations to the exact raw categories
+  if (trimmed === "raw material" || trimmed === "raw_material") return "Raw Material";
   if (trimmed === "salary/wages" || trimmed === "labour & wages" || trimmed === "labour and wages" || trimmed === "labour") return "Labour & Wages";
-  if (trimmed === "electricity & power" || trimmed === "electricity" || trimmed === "fuel") return "Electricity & Power";
+  if (trimmed === "electricity & power" || trimmed === "electricity" || trimmed === "power" || trimmed === "fuel") return "Electricity & Power";
   if (trimmed === "water") return "Water";
   if (trimmed === "repairs and maintenance" || trimmed === "repairs & maintenance") return "Repairs & Maintenance";
   if (trimmed === "courier/transportation" || trimmed === "goods carriage & transport" || trimmed === "transportation" || trimmed === "courier") return "Goods Carriage & Transport";
   if (trimmed === "factory-related expenses") return "Factory-Related Expenses";
   
-  if (trimmed === "travel" || trimmed === "travel & logistics") return "Travel & Logistics";
-  if (trimmed === "admin costs" || trimmed === "salaries & admin" || trimmed === "salary admin" || trimmed === "salary") return "Salaries & Admin";
-  if (trimmed === "marketing expense" || trimmed === "advertisement" || trimmed === "business promotion" || trimmed === "marketing & ads" || trimmed === "marketing") return "Marketing & Ads";
+  if (trimmed === "travel" || trimmed === "travel & logistics") return "Travel";
+  if (trimmed === "admin costs" || trimmed === "salaries & admin" || trimmed === "salary admin" || trimmed === "salary") return "Admin Costs";
+  if (trimmed === "marketing expense" || trimmed === "marketing & ads" || trimmed === "marketing") return "Marketing expense";
+  if (trimmed === "advertisement" || trimmed === "advertising") return "Advertisement";
+  if (trimmed === "business promotion") return "Business Promotion";
   if (trimmed === "website") return "Website";
   if (trimmed === "telecommunication" || trimmed === "telecom") return "Telecommunication";
-  if (trimmed === "software & tech") return "Software & Tech";
-  if (trimmed === "insurance" || trimmed === "legal" || trimmed === "professional & legal") return "Professional & Legal";
-  if (trimmed === "taxes" || trimmed === "taxes & compliance") return "Taxes & Compliance";
-  if (trimmed === "rent" || trimmed === "rent & facilities") return "Rent & Facilities";
+  if (trimmed === "insurance") return "Insurance";
+  if (trimmed === "legal") return "Legal";
+  if (trimmed === "taxes" || trimmed === "taxes & compliance") return "Taxes";
+  if (trimmed === "rent" || trimmed === "rent & facilities") return "Rent";
   if (trimmed === "investment" || trimmed === "investment & other assets" || trimmed === "investment and other assets" || trimmed === "other assets" || trimmed === "assets") return "Investment & Other Assets";
-  if (trimmed === "staff welfare" || trimmed === "other expenses" || trimmed === "other indirect" || trimmed === "general overhead" || trimmed === "other") return "General Overhead";
+  if (trimmed === "staff welfare") return "Staff Welfare";
+  if (trimmed === "other expenses" || trimmed === "other indirect" || trimmed === "general overhead" || trimmed === "other") return "Other expenses";
 
   const match = EXPENSE_CATEGORIES.find(c => c.toLowerCase() === trimmed);
   if (match) return match;
