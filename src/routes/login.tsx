@@ -43,8 +43,11 @@ function LoginPage() {
   // Dynamic Password Validation Rules for Signup Mode
   const hasEightChars = password.length >= 8;
   const hasNumber = /\d/.test(password);
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasCapital = /[A-Z]/.test(password);
   const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-  const isPasswordValid = hasEightChars && hasNumber && hasSpecialChar;
+  const isAlphanumeric = hasLetter && hasNumber;
+  const isPasswordValid = hasEightChars && isAlphanumeric && hasCapital && hasSpecialChar;
 
   // SVG Hover Interactive State
   const [hoveredBar, setHoveredBar] = useState<BarData | null>(null);
@@ -628,7 +631,7 @@ function LoginPage() {
 
                   {/* Real-time Dynamic Password Checklist (only in signup mode) */}
                   {mode === "signup" && (
-                    <div className="mt-3 p-3 rounded-lg bg-[#0B132B]/60 border border-gray-800 space-y-1.5 transition-all duration-300">
+                    <div className={`mt-3 p-3 rounded-lg bg-[#0B132B]/60 border space-y-1.5 transition-all duration-300 ${isPasswordValid ? "border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-emerald-950/10" : "border-gray-800"}`}>
                       <span className="text-[10px] font-semibold text-[#D4AF37]/80 uppercase tracking-wider block">
                         Ledger Security Checklist
                       </span>
@@ -639,11 +642,17 @@ function LoginPage() {
                           </span>
                           <span>8+ characters</span>
                         </li>
-                        <li className={`flex items-center gap-2 transition-all ${hasNumber ? "text-emerald-400 font-medium" : "text-gray-500"}`}>
-                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-[8px] transition-all ${hasNumber ? "bg-emerald-500/10 border-emerald-400 text-emerald-400 scale-105" : "border-gray-700 text-transparent"}`}>
+                        <li className={`flex items-center gap-2 transition-all ${isAlphanumeric ? "text-emerald-400 font-medium" : "text-gray-500"}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-[8px] transition-all ${isAlphanumeric ? "bg-emerald-500/10 border-emerald-400 text-emerald-400 scale-105" : "border-gray-700 text-transparent"}`}>
                             ✓
                           </span>
-                          <span>At least 1 number</span>
+                          <span>Alphanumeric (Letters & Numbers)</span>
+                        </li>
+                        <li className={`flex items-center gap-2 transition-all ${hasCapital ? "text-emerald-400 font-medium" : "text-gray-500"}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-[8px] transition-all ${hasCapital ? "bg-emerald-500/10 border-emerald-400 text-emerald-400 scale-105" : "border-gray-700 text-transparent"}`}>
+                            ✓
+                          </span>
+                          <span>At least 1 uppercase letter (Caps)</span>
                         </li>
                         <li className={`flex items-center gap-2 transition-all ${hasSpecialChar ? "text-emerald-400 font-medium" : "text-gray-500"}`}>
                           <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-[8px] transition-all ${hasSpecialChar ? "bg-emerald-500/10 border-emerald-400 text-emerald-400 scale-105" : "border-gray-700 text-transparent"}`}>
@@ -652,6 +661,12 @@ function LoginPage() {
                           <span>At least 1 special character</span>
                         </li>
                       </ul>
+                      {isPasswordValid && (
+                        <div className="mt-2.5 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-400 font-bold flex items-center gap-1.5 transition-all duration-300 animate-pulse">
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>All security constraints completed!</span>
+                        </div>
+                      )}
                     </div>
                   )}
 
