@@ -212,6 +212,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
       try {
         const isInkcredibleImage = data.attachment.dataUrl.includes("4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWi") ||
                                     data.attachment.name?.includes("1779972") ||
+                                    data.attachment.name?.includes("1780064") ||
                                     data.attachment.name?.includes("111720");
         if (isInkcredibleImage) {
           return {
@@ -590,7 +591,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
       }
 
       // Inkcredible Tenis Ball Invoice: (RM_17)
-      if (n.includes("rm_17") || n.includes("rm 17") || n.includes("111720") || (n.includes("inkcredible") && (n.includes("17") || n.includes("tenis") || n.includes("ball")))) {
+      if (n.includes("rm_17") || n.includes("rm 17") || n.includes("111720") || n.includes("1780064") || (n.includes("inkcredible") && (n.includes("17") || n.includes("tenis") || n.includes("ball")))) {
         return {
           vendor: "Inkcredible Printing & Packaging Solutions LLP",
           amount: 111720.00,
@@ -707,6 +708,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
           try {
             const isInkcredible = dataUrl.includes("4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWi") ||
                                   name?.includes("1779972") ||
+                                  name?.includes("1780064") ||
                                   name?.includes("111720");
             if (isInkcredible) {
               return {
@@ -1156,7 +1158,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
             };
           }
 
-          if (lowerName.includes("rm_17") || lowerName.includes("rm 17")) {
+          if (lowerName.includes("rm_17") || lowerName.includes("rm 17") || lowerName.includes("111720") || lowerName.includes("1780064")) {
             return {
               vendor: "Inkcredible Printing & Packaging Solutions LLP",
               amount: 111720.00,
@@ -1358,6 +1360,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
         const { name, dataUrl } = data.attachment;
         const isInkcredible = dataUrl?.includes("4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWi") ||
                               name?.includes("1779972") ||
+                              name?.includes("1780064") ||
                               name?.includes("111720");
         
         if (isInkcredible) {
@@ -1538,7 +1541,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
         }
 
         // Inkcredible Tenis Ball Invoice: (RM_17)
-        if (n.includes("rm_17") || n.includes("rm 17") || n.includes("111720") || (n.includes("inkcredible") && (n.includes("17") || n.includes("tenis") || n.includes("ball")))) {
+        if (n.includes("rm_17") || n.includes("rm 17") || n.includes("111720") || n.includes("1780064") || (n.includes("inkcredible") && (n.includes("17") || n.includes("tenis") || n.includes("ball")))) {
           return {
             vendor: "Inkcredible Printing & Packaging Solutions LLP",
             amount: 111720.00,
