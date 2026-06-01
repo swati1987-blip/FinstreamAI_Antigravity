@@ -480,21 +480,35 @@ function Dashboard() {
 
   const potentialDuplicates = useMemo(() => {
     const duplicates = new Set<string>();
-    const seen = new Map<string, string>(); // key -> id
-    
-    for (const e of expenses) {
+    const groups = new Map<string, typeof expenses>();
+    expenses.forEach((e) => {
       const vendorName = cleanVendorName(e.vendor || "").toLowerCase().trim();
       const amountVal = Number(e.amount).toFixed(2);
       const dateStr = e.date || e.created_at.slice(0, 10);
-      
       const key = `${vendorName}-${amountVal}-${dateStr}`;
-      if (seen.has(key)) {
-        duplicates.add(e.id);
-        duplicates.add(seen.get(key)!);
-      } else {
-        seen.set(key, e.id);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    });
+    groups.forEach((group) => {
+      if (group.length <= 1) return;
+      for (let i = 0; i < group.length; i++) {
+        const e1 = group[i];
+        const time1 = new Date(e1.created_at).getTime();
+        let hasDistantlyCreatedPair = false;
+        for (let j = 0; j < group.length; j++) {
+          if (i === j) continue;
+          const e2 = group[j];
+          const time2 = new Date(e2.created_at).getTime();
+          if (Math.abs(time1 - time2) >= 20000) {
+            hasDistantlyCreatedPair = true;
+            break;
+          }
+        }
+        if (hasDistantlyCreatedPair) {
+          duplicates.add(e1.id);
+        }
       }
-    }
+    });
     return duplicates;
   }, [expenses]);
 

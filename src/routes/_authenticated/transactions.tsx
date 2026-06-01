@@ -315,12 +315,37 @@ function TransactionsPage() {
     return list;
   }, [formCategory, formCostType, formExpenseCategory, DIRECT_CATEGORIES, INDIRECT_CATEGORIES]);
 
-  // Pre-calculate exact duplicate counts in items array to make duplicate checks extremely fast
-  const duplicateCounts = new Map<string, number>();
-  items.forEach((e) => {
-    const key = `${cleanVendorName(e.vendor).toLowerCase().trim()}|${Number(e.amount).toFixed(2)}|${e.date || e.created_at.split('T')[0]}`;
-    duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
-  });
+  // Find exact duplicate IDs by matching same vendor, amount, date, but created > 20s apart
+  const potentialDuplicates = useMemo(() => {
+    const duplicates = new Set<string>();
+    const groups = new Map<string, typeof items>();
+    items.forEach((e) => {
+      const key = `${cleanVendorName(e.vendor).toLowerCase().trim()}|${Number(e.amount).toFixed(2)}|${e.date || e.created_at.split('T')[0]}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    });
+    groups.forEach((group) => {
+      if (group.length <= 1) return;
+      for (let i = 0; i < group.length; i++) {
+        const e1 = group[i];
+        const time1 = new Date(e1.created_at).getTime();
+        let hasDistantlyCreatedPair = false;
+        for (let j = 0; j < group.length; j++) {
+          if (i === j) continue;
+          const e2 = group[j];
+          const time2 = new Date(e2.created_at).getTime();
+          if (Math.abs(time1 - time2) >= 20000) {
+            hasDistantlyCreatedPair = true;
+            break;
+          }
+        }
+        if (hasDistantlyCreatedPair) {
+          duplicates.add(e1.id);
+        }
+      }
+    });
+    return duplicates;
+  }, [items]);
 
   const seenKeys = new Set<string>();
   const filtered = items.filter((e) => {
@@ -340,13 +365,14 @@ function TransactionsPage() {
 
     // 3. Filter by duplicates selection
     const key = `${cleanVendorName(e.vendor).toLowerCase().trim()}|${Number(e.amount).toFixed(2)}|${e.date || e.created_at.split('T')[0]}`;
-    const totalCount = duplicateCounts.get(key) ?? 0;
 
     if (filterDuplicates === "hide_duplicates") {
-      if (seenKeys.has(key)) return false;
-      seenKeys.add(key);
+      if (potentialDuplicates.has(e.id)) {
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
+      }
     } else if (filterDuplicates === "duplicates_only") {
-      if (totalCount <= 1) return false;
+      if (!potentialDuplicates.has(e.id)) return false;
     }
 
     return true;
@@ -1419,8 +1445,7 @@ function TransactionsPage() {
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="truncate">{cleanVendor}</span>
                           {(() => {
-                            const key = `${cleanVendorName(e.vendor).toLowerCase().trim()}|${Number(e.amount).toFixed(2)}|${e.date || e.created_at.split('T')[0]}`;
-                            const isDuplicate = (duplicateCounts.get(key) ?? 0) > 1;
+                            const isDuplicate = potentialDuplicates.has(e.id);
                             return isDuplicate && (
                               <button
                                 onClick={(ev) => {
