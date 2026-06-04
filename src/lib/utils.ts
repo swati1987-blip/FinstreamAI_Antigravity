@@ -6,30 +6,34 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const EXPENSE_CATEGORIES = [
-  // Standardized Direct Categories
-  "Raw Material",
-  "Labour & Wages",
-  "Electricity & Power",
-  "Water",
-  "Repairs & Maintenance",
-  "Goods Carriage & Transport",
-  "Factory-Related Expenses",
-  
-  // Standardized Indirect Categories
   "Admin Costs",
-  "Advertisement",
+  "Advertising & Marketing",
+  "Auditors Remuneration",
   "Business Promotion",
+  "Carriage outwards",
+  "Electricity & Power",
+  "Electricity Charges - office",
+  "Factory-Related Expenses",
+  "Goods Carriage & Transport",
   "Insurance",
   "Investment & Other Assets",
-  "Legal",
-  "Marketing expense",
+  "Labour & Wages",
+  "Legal and Professional Expenses",
+  "Motor Car expenses",
+  "Other expenses",
+  "Other repairs",
+  "Printing and Stationery",
+  "Raw Material",
   "Rent",
+  "Repairs & Maintenance",
+  "Royalty",
+  "Salary",
+  "Staff Welfare",
   "Taxes",
   "Telecommunication",
   "Travel",
-  "Website",
-  "Staff Welfare",
-  "Other expenses"
+  "Water",
+  "Website"
 ] as const;
 
 export function cleanVendorName(vendor: string | null | undefined): string {
@@ -40,11 +44,15 @@ export function cleanVendorName(vendor: string | null | undefined): string {
   name = name.replace(/\s*\([^)]*\)\s*$/, "");
 
   // 2. Remove trailing hyphens, colons, middots, or slashes followed by category keywords
-  name = name.replace(/\s*[-:·•/]\s*(?:Business|Personal|Investments|Business Promotion|Telecommunication|Travel|Staff Welfare|Admin Costs|Raw material|Insurance|Repairs and maintenance|Fuel|Advertisement|Courier\/Transportation|Website|Legal|Marketing expense|Other expenses|KS|TI|CPM|AAS|Swati|Others|None)\b/i, "");
+  name = name.replace(/\s*[-:·•/]\s*(?:Business|Personal|Investments|Business Promotion|Telecommunication|Travel|Staff Welfare|Admin Costs|Raw material|Insurance|Repairs and maintenance|Fuel|Advertisement|Advertising & Marketing|Courier\/Transportation|Website|Legal|Legal and Professional Expenses|Marketing expense|Auditors Remuneration|Carriage outwards|Royalty|Motor Car expenses|Electricity Charges - office|Printing and Stationery|Other repairs|Other expenses|KS|TI|CPM|AAS|Swati|Others|None)\b/i, "");
 
   // 3. Remove trailing category/entity keywords directly at the end of the word
-  const categoriesPattern = /\b(?:Business|Personal|Investments|Business Promotion|Telecommunication|Travel|Staff Welfare|Admin Costs|Raw material|Insurance|Repairs and maintenance|Fuel|Advertisement|Courier\/Transportation|Website|Legal|Marketing expense|Other expenses|KS|TI|CPM|AAS|Swati|Others|None)$/i;
+  const categoriesPattern = /\b(?:Business|Personal|Investments|Business Promotion|Telecommunication|Travel|Staff Welfare|Admin Costs|Raw material|Insurance|Repairs and maintenance|Fuel|Advertisement|Advertising & Marketing|Courier\/Transportation|Website|Legal|Legal and Professional Expenses|Marketing expense|Auditors Remuneration|Carriage outwards|Royalty|Motor Car expenses|Electricity Charges - office|Printing and Stationery|Other repairs|Other expenses|KS|TI|CPM|AAS|Swati|Others|None)$/i;
   name = name.replace(categoriesPattern, "").trim();
+
+  // 4. Strip common vendor suffixes (e.g. pay, utilities, retail, limited, ltd, pvt, solutions, industries, corp) at the end of the vendor name
+  const suffixesPattern = /\b(?:pay|utilities|retail|limited|ltd|pvt|solutions|industries|corp)\b\.?/i;
+  name = name.replace(suffixesPattern, "").trim();
 
   // Clean up any trailing punctuation
   name = name.replace(/[-:·•/]+$/, "").trim();
@@ -211,9 +219,15 @@ export function classifyExpense(item: {
     return { type: "Direct", category: "Labour & Wages", subcategory: "Labour & Wages" };
   }
 
-  // 5. Repairs and maintenance -> Direct / Repairs & Maintenance
+  // 5. Repairs and maintenance -> Direct / Repairs & Maintenance (unless office/facility related or vehicle/manually forced related)
   if (rawCat.toLowerCase() === "repairs and maintenance" || rawCat.toLowerCase() === "repairs & maintenance") {
     let sub = "Equipment Servicing";
+    if (hasDesc("office", "admin", "hq", "head office", "building", "furniture", "ac", "air conditioner", "plumbing", "computer", "laptop", "printer")) {
+      return { type: "Indirect", category: "Rent & Facilities", subcategory: "Office Maintenance" };
+    }
+    if (hasDesc("car", "vehicle", "auto", "creta", "motor", "bike", "scooter", "tyre", "wheel", "oil", "service", "northview", "indirect")) {
+      return { type: "Indirect", category: "Repairs & Maintenance", subcategory: "Vehicle Maintenance" };
+    }
     if (hasDesc("machine", "lathe", "furnace", "factory", "boiler")) {
       sub = "Machine Repair";
     } else if (hasDesc("tool", "drill", "cutter", "blade", "replacement")) {
@@ -251,9 +265,11 @@ export function classifyExpense(item: {
   // INDIRECT COSTS RE-MAPPING
   
   // 1. Travel & Logistics
-  if (rawCat.toLowerCase() === "travel" || rawCat.toLowerCase() === "travel & logistics") {
+  if (rawCat.toLowerCase() === "travel" || rawCat.toLowerCase() === "travel & logistics" || rawCat.toLowerCase() === "motor car expenses" || rawCat.toLowerCase() === "carriage outwards") {
     let sub = "Business Travel";
-    if (hasDesc("commute", "cab", "auto", "metro")) sub = "Employee Commute";
+    if (rawCat.toLowerCase() === "motor car expenses") sub = "Motor Car Expenses";
+    else if (rawCat.toLowerCase() === "carriage outwards") sub = "Carriage Outwards";
+    else if (hasDesc("commute", "cab", "auto", "metro")) sub = "Employee Commute";
     else if (hasDesc("fuel", "petrol", "diesel", "car")) sub = "Car Fuel";
     return { type: "Indirect", category: "Travel & Logistics", subcategory: sub };
   }
@@ -267,7 +283,7 @@ export function classifyExpense(item: {
   }
 
   // 3. Salaries & Admin
-  if (rawCat.toLowerCase() === "salary/wages" || rawCat.toLowerCase() === "salaries & admin") {
+  if (rawCat.toLowerCase() === "salary/wages" || rawCat.toLowerCase() === "salaries & admin" || rawCat.toLowerCase() === "salary" || rawCat.toLowerCase() === "salaries") {
     let sub = "Head Office Staff";
     if (hasDesc("management", "manager", "ceo", "director")) sub = "Management Salary";
     else if (hasDesc("admin", "payroll", "hr", "finance")) sub = "Admin Payroll";
@@ -275,7 +291,7 @@ export function classifyExpense(item: {
   }
 
   // 4. Marketing & Ads
-  if (["marketing expense", "advertisement", "business promotion", "marketing & ads"].some(c => c === rawCat.toLowerCase())) {
+  if (["marketing expense", "advertisement", "business promotion", "marketing & ads", "advertising & marketing"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Business Promotion";
     if (hasDesc("digital", "google", "fb", "ad", "meta", "online")) sub = "Digital Ads";
     else if (hasDesc("event", "exhibition", "fair", "expo")) sub = "Events";
@@ -291,27 +307,32 @@ export function classifyExpense(item: {
   }
 
   // 6. General Overhead / Telecommunication
-  if (["staff welfare", "telecommunication", "telecom", "general overhead", "admin costs", "other expenses"].some(c => c === rawCat.toLowerCase())) {
+  if (["staff welfare", "telecommunication", "telecom", "general overhead", "admin costs", "other expenses", "royalty", "printing and stationery"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Office Expenses";
-    if (hasDesc("welfare", "staff", "tea", "snack", "dining", "lunch")) sub = "Staff Welfare";
+    if (rawCat.toLowerCase() === "royalty") sub = "Royalty";
+    else if (rawCat.toLowerCase() === "printing and stationery") sub = "Printing & Stationery";
+    else if (hasDesc("welfare", "staff", "tea", "snack", "dining", "lunch")) sub = "Staff Welfare";
     else if (hasDesc("telecom", "phone", "internet", "mobile", "wifi")) sub = "Telecommunication";
     else if (hasDesc("dining", "food", "restaurant")) sub = "Dining";
     return { type: "Indirect", category: "General Overhead", subcategory: sub };
   }
 
   // 7. Professional & Legal
-  if (["insurance", "legal", "professional & legal"].some(c => c === rawCat.toLowerCase())) {
+  if (["insurance", "legal", "professional & legal", "legal and professional expenses", "auditors remuneration"].some(c => c === rawCat.toLowerCase())) {
     let sub = "Legal Fees";
-    if (hasDesc("insurance")) sub = "Insurance";
+    if (rawCat.toLowerCase() === "auditors remuneration") sub = "Auditors Remuneration";
+    else if (hasDesc("insurance")) sub = "Insurance";
     else if (hasDesc("compliance", "audit", "tax")) sub = "Compliance";
     else if (hasDesc("professional", "consultant")) sub = "Professional Services";
     return { type: "Indirect", category: "Professional & Legal", subcategory: sub };
   }
 
   // 8. Rent & Facilities
-  if (rawCat.toLowerCase() === "rent" || rawCat.toLowerCase() === "rent & facilities") {
+  if (rawCat.toLowerCase() === "rent" || rawCat.toLowerCase() === "rent & facilities" || rawCat.toLowerCase() === "electricity charges - office" || rawCat.toLowerCase() === "other repairs") {
     let sub = "Office Rent";
-    if (hasDesc("cowork", "co-working", "wework", "shared")) sub = "Co-working Space";
+    if (rawCat.toLowerCase() === "electricity charges - office") sub = "Office Electricity";
+    else if (rawCat.toLowerCase() === "other repairs") sub = "Office Repairs";
+    else if (hasDesc("cowork", "co-working", "wework", "shared")) sub = "Co-working Space";
     return { type: "Indirect", category: "Rent & Facilities", subcategory: sub };
   }
 
@@ -497,7 +518,8 @@ export function resolveEntityFromVendor(vendor: string | null | undefined, rawTe
   if (/\bKS\b|KUMARAM|SUTRI|ANJALI|SAURASHTRA|SUNSHINE|SUN\s+SHINE|A\s*B\s*BROTHER|DATTANI/i.test(textToCheck)) {
     return "KS";
   }
-  return "None";
+  // Default fallback if not recognizable
+  return "KS";
 }
 
 export function normalizeCategory(cat: string | null | undefined): string {
@@ -506,7 +528,7 @@ export function normalizeCategory(cat: string | null | undefined): string {
 
   // Graceful mappings for common variations to the exact raw categories
   if (trimmed === "raw material" || trimmed === "raw_material") return "Raw Material";
-  if (trimmed === "salary/wages" || trimmed === "labour & wages" || trimmed === "labour and wages" || trimmed === "labour") return "Labour & Wages";
+  if (trimmed === "labour & wages" || trimmed === "labour and wages" || trimmed === "labour") return "Labour & Wages";
   if (trimmed === "electricity & power" || trimmed === "electricity" || trimmed === "power" || trimmed === "fuel") return "Electricity & Power";
   if (trimmed === "water") return "Water";
   if (trimmed === "repairs and maintenance" || trimmed === "repairs & maintenance") return "Repairs & Maintenance";
@@ -514,18 +536,27 @@ export function normalizeCategory(cat: string | null | undefined): string {
   if (trimmed === "factory-related expenses") return "Factory-Related Expenses";
   
   if (trimmed === "travel" || trimmed === "travel & logistics") return "Travel";
-  if (trimmed === "admin costs" || trimmed === "salaries & admin" || trimmed === "salary admin" || trimmed === "salary") return "Admin Costs";
-  if (trimmed === "marketing expense" || trimmed === "marketing & ads" || trimmed === "marketing") return "Marketing expense";
-  if (trimmed === "advertisement" || trimmed === "advertising") return "Advertisement";
+  if (trimmed === "admin costs") return "Admin Costs";
+  if (trimmed === "salary" || trimmed === "salaries" || trimmed === "salary admin" || trimmed === "salaries & admin" || trimmed === "payroll" || trimmed === "salary/wages") return "Salary";
+  if (trimmed === "marketing expense" || trimmed === "marketing & ads" || trimmed === "marketing" || trimmed === "advertisement" || trimmed === "advertising" || trimmed === "advertising & marketing") return "Advertising & Marketing";
   if (trimmed === "business promotion") return "Business Promotion";
   if (trimmed === "website") return "Website";
   if (trimmed === "telecommunication" || trimmed === "telecom") return "Telecommunication";
   if (trimmed === "insurance") return "Insurance";
-  if (trimmed === "legal") return "Legal";
+  if (trimmed === "legal" || trimmed === "legal and professional expenses" || trimmed === "professional & legal" || trimmed === "legal & professional") return "Legal and Professional Expenses";
   if (trimmed === "taxes" || trimmed === "taxes & compliance") return "Taxes";
   if (trimmed === "rent" || trimmed === "rent & facilities") return "Rent";
   if (trimmed === "investment" || trimmed === "investment & other assets" || trimmed === "investment and other assets" || trimmed === "other assets" || trimmed === "assets") return "Investment & Other Assets";
   if (trimmed === "staff welfare") return "Staff Welfare";
+  
+  if (trimmed === "auditors remuneration" || trimmed === "auditor remuneration" || trimmed === "audits" || trimmed === "audit") return "Auditors Remuneration";
+  if (trimmed === "carriage outwards" || trimmed === "carriage outward") return "Carriage outwards";
+  if (trimmed === "royalty" || trimmed === "royalties") return "Royalty";
+  if (trimmed === "motor car expenses" || trimmed === "motor car expense" || trimmed === "car expense" || trimmed === "car expenses") return "Motor Car expenses";
+  if (trimmed === "electricity charges - office" || trimmed === "office electricity" || trimmed === "electricity - office") return "Electricity Charges - office";
+  if (trimmed === "printing and stationery" || trimmed === "printing & stationery" || trimmed === "stationery" || trimmed === "printing") return "Printing and Stationery";
+  if (trimmed === "other repairs" || trimmed === "office repairs" || trimmed === "office repair" || trimmed === "other repair") return "Other repairs";
+
   if (trimmed === "other expenses" || trimmed === "other indirect" || trimmed === "general overhead" || trimmed === "other") return "Other expenses";
 
   const match = EXPENSE_CATEGORIES.find(c => c.toLowerCase() === trimmed);

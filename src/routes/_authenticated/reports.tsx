@@ -176,7 +176,7 @@ function compactTick(v: number, currency: string): string {
 
 function ReportsPage() {
   const { user } = useAuth();
-  const { currency: displayCurrency } = useCurrency();
+  const { currency: displayCurrency, ratesVersion } = useCurrency();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<Timeframe>("Month");
@@ -276,23 +276,7 @@ function ReportsPage() {
     return Array.from(set).sort();
   }, [rows]);
 
-  // Google Sheets Export States
-  const [isExportSheetsOpen, setIsExportSheetsOpen] = useState(false);
-  const [exportTab, setExportTab] = useState<"clipboard" | "n8n">("clipboard");
-  const [webhookUrl, setWebhookUrl] = useState(() => typeof window !== "undefined" ? localStorage.getItem("finstream_n8n_webhook") || "" : "");
-  const [useRealWebhook, setUseRealWebhook] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStep, setSyncStep] = useState(0);
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [syncError, setSyncError] = useState("");
-  const [autoSync, setAutoSync] = useState(() => typeof window !== "undefined" ? localStorage.getItem("finstream_n8n_auto_sync") === "true" : false);
 
-  const handleSaveWebhook = (url: string) => {
-    setWebhookUrl(url);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("finstream_n8n_webhook", url);
-    }
-  };
 
   useEffect(() => {
     if (!user) return;
@@ -418,7 +402,7 @@ function ReportsPage() {
       else personal += amt;
     }
     return { total, business, personal, investments, directSpend, indirectSpend, count: filteredRows.length };
-  }, [filteredRows, displayCurrency]);
+  }, [filteredRows, displayCurrency, ratesVersion]);
 
   // ── Cost entity-filtered rows ─────────────────────────────────────────────
   const costFilteredRows = useMemo(() => {
@@ -477,7 +461,7 @@ function ReportsPage() {
       total: entries.reduce((s, e) => s + e.amount, 0),
       entries,
     })).sort((a, b) => b.total - a.total);
-  }, [costFilteredRows, displayCurrency]);
+  }, [costFilteredRows, displayCurrency, ratesVersion]);
 
   // Indirect cost grouped breakdown
   const indirectBreakdown = useMemo(() => {
@@ -506,7 +490,7 @@ function ReportsPage() {
       total: entries.reduce((s, e) => s + e.amount, 0),
       entries,
     })).sort((a, b) => b.total - a.total);
-  }, [costFilteredRows, displayCurrency]);
+  }, [costFilteredRows, displayCurrency, ratesVersion]);
 
   // Entity-filtered summary for cost ratio (used in the ratio bar & benchmark)
   const costSummary = useMemo(() => {
@@ -526,7 +510,7 @@ function ReportsPage() {
       else if (classified.type === "Indirect") indirectSpend += amt;
     }
     return { business, directSpend, indirectSpend };
-  }, [costFilteredRows, displayCurrency]);
+  }, [costFilteredRows, displayCurrency, ratesVersion]);
 
   // ── Distribution datasets ───────────────────────────────────────────────
   const categoryData = useMemo(() => {
@@ -538,7 +522,7 @@ function ReportsPage() {
     return Object.entries(map)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredRows, displayCurrency]);
+  }, [filteredRows, displayCurrency, ratesVersion]);
 
   const entityData = useMemo(() => {
     const map: Record<string, number> = {};
@@ -549,7 +533,7 @@ function ReportsPage() {
     return Object.entries(map)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredRows, displayCurrency]);
+  }, [filteredRows, displayCurrency, ratesVersion]);
 
   const mainCatData = useMemo(() => {
     const map: Record<string, number> = {};
@@ -560,7 +544,7 @@ function ReportsPage() {
     return Object.entries(map)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredRows, displayCurrency]);
+  }, [filteredRows, displayCurrency, ratesVersion]);
 
   const activeDistData =
     distributionMode === "entity" ? entityData :
@@ -722,6 +706,7 @@ function ReportsPage() {
     const fixedBreakdown: Record<string, number> = {};
 
     const fixedCategories = new Set([
+      "Salary",
       "Salaries & Admin",
       "Labour & Wages",
       "Rent & Facilities",
@@ -859,7 +844,7 @@ function ReportsPage() {
       `${r.vendor || ""} ${r.raw_text || ""}`.toLowerCase().includes(drilldownSearch.toLowerCase())
     );
     return { target, total, count, avg, percentage, transactions: searched };
-  }, [filteredRows, selectedDrilldown, categoryData, displayCurrency, summary.total, drilldownSearch]);
+  }, [filteredRows, selectedDrilldown, categoryData, displayCurrency, summary.total, drilldownSearch, ratesVersion]);
 
   // ── Period comparison ──────────────────────────────────────────────────
   const allCategories = useMemo(() => {
@@ -913,7 +898,7 @@ function ReportsPage() {
           return v(a.period) - v(b.period);
         });
     }
-  }, [rows, compareUnit, selectedCompareCategories, allCategories, displayCurrency]);
+  }, [rows, compareUnit, selectedCompareCategories, allCategories, displayCurrency, ratesVersion]);
 
   // ── Trend ──────────────────────────────────────────────────────────────
   const trendData = useMemo(() => {
@@ -932,7 +917,7 @@ function ReportsPage() {
         convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
     }
     return Object.entries(map).map(([date, amount]) => ({ date, amount: parseFloat(amount.toFixed(2)) }));
-  }, [filteredRows, timeframe, displayCurrency]);
+  }, [filteredRows, timeframe, displayCurrency, ratesVersion]);
 
   // ── CSV Export ─────────────────────────────────────────────────────────
   const handleExportCSV = () => {
@@ -957,134 +942,7 @@ function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  // ── Google Sheets Export Logic ──────────────────────────────────────────
-  const handleCopyTSV = () => {
-    const headers = ["Date", "Vendor", "Category", "Entity", "Expense Category", "Description", "Amount (INR)", "Currency"];
-    const body = filteredRows.map((r) => [
-      effectiveDate(r).split("T")[0],
-      r.vendor || "Unknown",
-      r.main_category || r.category || "Business",
-      r.company_entity || "None",
-      normalizeCategory(r.expense_category || "Other expenses"),
-      (r.raw_text || "").replace(/\t/g, " "),
-      convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at).toFixed(2),
-      r.currency,
-    ]);
 
-    let tsv = "FINSTREAM AI TRANSACTION LEDGER\n";
-    tsv += `Report Type\tGoogle Sheets Direct Paste Data\n`;
-    tsv += `Timeframe Interval\t${timeframe}\n`;
-    tsv += `Total Transacted Amount\t${formatCurrency(summary.total, displayCurrency)}\n`;
-    tsv += `Total Outflow (INR)\t${formatCurrency(convertAmount(summary.total, displayCurrency, "INR", new Date()), "INR")}\n`;
-    tsv += `Total Outflow (USD)\t${formatCurrency(convertAmount(summary.total, displayCurrency, "USD", new Date()), "USD")}\n`;
-    tsv += `Active Outflow Count\t${summary.count} rows\n`;
-    tsv += `Export Generated At\t${format(new Date(), "yyyy-MM-dd HH:mm:ss")}\n\n`;
-
-    if (aiNarrative) {
-      tsv += `AI GENERATED NARRATIVE SUMMARY:\n"${aiNarrative.replace(/"/g, '""')}"\n\n`;
-    }
-
-    tsv += headers.join("\t") + "\n";
-    body.forEach((row) => {
-      tsv += row.join("\t") + "\n";
-    });
-
-    navigator.clipboard.writeText(tsv)
-      .then(() => {
-        toast.success("Spreadsheet data copied to clipboard! Open Google Sheets and press Ctrl+V to paste.");
-      })
-      .catch((err) => {
-        console.error("Failed to copy spreadsheet data:", err);
-        toast.error("Failed to write to clipboard. Please copy manually or download CSV.");
-      });
-  };
-
-  const handleWebhookSync = async () => {
-    setIsSyncing(true);
-    setSyncStep(1);
-    setSyncProgress(15);
-    setSyncError("");
-
-    const chronologicalTransactions = [...filteredRows].sort((a, b) => {
-      const dateA = new Date(effectiveDate(a)).getTime();
-      const dateB = new Date(effectiveDate(b)).getTime();
-      return dateA - dateB; // Chronological (oldest first)
-    });
-
-    const payload = {
-      export_time: new Date().toISOString(),
-      timeframe,
-      total_amount_inr: convertAmount(summary.total, displayCurrency, "INR", new Date()),
-      transaction_count: summary.count,
-      ai_summary: aiNarrative,
-      transactions: chronologicalTransactions.map((r) => ({
-        date: effectiveDate(r).split("T")[0],
-        vendor: r.vendor || "Unknown",
-        category: r.main_category || r.category || "Business",
-        entity: r.company_entity || "None",
-        expense_category: normalizeCategory(r.expense_category || "Other expenses"),
-        description: r.raw_text || "",
-        amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at),
-        currency: r.currency,
-      }))
-    };
-
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    try {
-      // Step 1: Connecting
-      await sleep(1000);
-      setSyncStep(2);
-      setSyncProgress(35);
-
-      // Step 2: Mapping
-      await sleep(1200);
-      setSyncStep(3);
-      setSyncProgress(60);
-
-      // Step 3: Trigger real endpoint (if active)
-      if (useRealWebhook && webhookUrl) {
-        try {
-          const res = await fetch(webhookUrl, {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "bypass-tunnel-reminder": "true"
-            },
-            body: JSON.stringify(payload),
-          });
-          if (!res.ok) {
-            throw new Error(`Server returned error code: ${res.status}`);
-          }
-        } catch (err: any) {
-          console.error("Real webhook sync execution failed:", err);
-          setSyncError(err.message || "Failed to make endpoint webhook connection.");
-          setIsSyncing(false);
-          setSyncStep(0);
-          return;
-        }
-      }
-
-      // Step 4: Styling
-      await sleep(1000);
-      setSyncStep(4);
-      setSyncProgress(80);
-
-      // Step 5: AI narration
-      await sleep(1200);
-      setSyncStep(5);
-      setSyncProgress(100);
-
-      await sleep(800);
-      setSyncStep(6);
-      toast.success("Google Sheets synchronized successfully!");
-    } catch (err: any) {
-      console.error(err);
-      setSyncError("An unexpected error occurred during synchronisation.");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   // ── Tooltip components ─────────────────────────────────────────────────
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -1134,6 +992,7 @@ function ReportsPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2 text-foreground">
               <BarChart3 className="w-5 h-5 text-primary animate-pulse" /> Reports
+              {loading && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               AI-powered financial intelligence · Budget tracking · Anomaly detection
@@ -1141,20 +1000,12 @@ function ReportsPage() {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {rows.length > 0 && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleExportCSV}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-foreground hover:text-foreground cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" /> Export CSV
-                </button>
-                <button
-                  onClick={() => setIsExportSheetsOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-white transition-all cursor-pointer shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)]"
-                >
-                  <span className="font-bold">田</span> Google Sheets Export
-                </button>
-              </div>
+              <button
+                onClick={handleExportCSV}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" /> Export CSV
+              </button>
             )}
             <CurrencySwitcher />
             <ThemeToggle />
@@ -1266,7 +1117,7 @@ function ReportsPage() {
           </div>
 
           {/* ── Loading / Empty states ────────────────────────────── */}
-          {loading ? (
+          {loading && rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-32 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
               <span className="mt-2 text-sm">Aggregating ledger data…</span>
@@ -1876,7 +1727,7 @@ function ReportsPage() {
                         <SelectTrigger className="h-8 w-full bg-background border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/5 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-wider cursor-pointer">
                           <SelectValue placeholder="➕ Add Category Budget" />
                         </SelectTrigger>
-                        <SelectContent className="max-h-[200px] overflow-y-auto">
+                        <SelectContent className="max-h-[80vh] sm:max-h-[480px]">
                           {allDbCategories
                             .filter((c) => !trackedCategories.includes(c))
                             .map((c) => (
@@ -2206,7 +2057,7 @@ function ReportsPage() {
                       <SelectTrigger className="h-9 w-full bg-background border-border">
                         <SelectValue placeholder="Category" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-[80vh] sm:max-h-[480px]">
                         {categoryData.map((c) => (
                           <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
                         ))}
@@ -2422,266 +2273,7 @@ function ReportsPage() {
       </main>
 
       {/* ══ GOOGLE SHEETS EXPORT MODAL ══════════════════════════ */}
-      {isExportSheetsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#090D1A]/80 backdrop-blur-md transition-all duration-300">
-          <div className="relative w-full max-w-lg overflow-hidden border border-slate-800 bg-[#0E1629]/95 rounded-2xl shadow-[var(--shadow-luxury)] p-6 text-slate-100 space-y-6">
-            
-            {/* Ambient gold glow in modal */}
-            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-bl-full pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-24 h-24 bg-emerald-500/5 rounded-tr-full pointer-events-none" />
 
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800/60">
-              <div className="flex items-center gap-2">
-                <span className="text-xl text-emerald-400">田</span>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-100 tracking-tight flex items-center gap-1.5">
-                    Google Sheets Export
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Export AI summaries & transaction ledgers to your spreadsheet
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!isSyncing) {
-                    setIsExportSheetsOpen(false);
-                    setSyncStep(0);
-                    setSyncProgress(0);
-                    setSyncError("");
-                  }
-                }}
-                disabled={isSyncing}
-                className="w-8 h-8 rounded-full border border-slate-850 flex items-center justify-center hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Segmented Tabs */}
-            <div className="flex bg-slate-900/60 p-1 rounded-lg border border-slate-800/80">
-              <button
-                disabled={isSyncing}
-                onClick={() => setExportTab("clipboard")}
-                className={cn(
-                  "flex-1 py-2 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5",
-                  exportTab === "clipboard"
-                    ? "bg-primary text-[#0E1629] font-bold shadow-[0_2px_8px_-2px_rgba(212,175,55,0.3)]"
-                    : "text-slate-400 hover:text-slate-100 disabled:opacity-50"
-                )}
-              >
-                📋 Clipboard Paste
-              </button>
-              <button
-                disabled={isSyncing}
-                onClick={() => setExportTab("n8n")}
-                className={cn(
-                  "flex-1 py-2 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5",
-                  exportTab === "n8n"
-                    ? "bg-primary text-[#0E1629] font-bold shadow-[0_2px_8px_-2px_rgba(212,175,55,0.3)]"
-                    : "text-slate-400 hover:text-slate-100 disabled:opacity-50"
-                )}
-              >
-                🤖 n8n Automation Sync
-              </button>
-            </div>
-
-            {/* Tab Contents */}
-            {exportTab === "clipboard" ? (
-              <div className="space-y-4">
-                <div className="bg-[#141C33]/50 border border-slate-800/60 p-4 rounded-xl text-xs leading-relaxed space-y-2">
-                  <p className="font-semibold text-primary">⚡ Quickest Method - Zero Integration Setup Required!</p>
-                  <p className="text-slate-300">
-                    This copies all filtered <strong>{summary.count} transactions</strong> and the <strong>AI Narrative Summary</strong> formatted as a grid of spreadsheet-ready data.
-                  </p>
-                  <ol className="list-decimal pl-4 space-y-1 text-slate-300 mt-1">
-                    <li>Click the button below to copy the data to your clipboard.</li>
-                    <li>Open a blank Google Sheet (opens automatically using our shortcut).</li>
-                    <li>Select cell <strong>A1</strong> and press <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-100 font-mono text-[10px]">Ctrl + V</kbd> to paste instantly!</li>
-                  </ol>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <button
-                    onClick={handleCopyTSV}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl border border-primary/50 bg-primary/10 hover:bg-primary/20 text-primary hover:text-primary-foreground hover:bg-primary transition-all cursor-pointer shadow-[0_4px_12px_-3px_rgba(212,175,55,0.2)]"
-                  >
-                    📋 Copy Spreadsheet Grid
-                  </button>
-                  <a
-                    href="https://sheets.new"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-slate-100 transition-all cursor-pointer"
-                  >
-                    🟢 Open Google Sheets ↗
-                  </a>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {syncStep === 0 && (
-                  <>
-                    <div className="bg-[#141C33]/50 border border-slate-800/60 p-4 rounded-xl text-xs leading-relaxed space-y-2">
-                      <p className="font-semibold text-primary">🤖 Connect your n8n Automation Workflow</p>
-                      <p className="text-slate-300">
-                        Synchronize your reports to a live spreadsheet. You can run the <strong>sync simulation</strong> immediately, or connect your real enterprise n8n workflow by enabling the real webhook toggle.
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 p-4 bg-slate-900/30 border border-slate-800/60 rounded-xl">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-200">Enable Real n8n Webhook</label>
-                        <input
-                          type="checkbox"
-                          checked={useRealWebhook}
-                          onChange={(e) => setUseRealWebhook(e.target.checked)}
-                          className="w-4.5 h-4.5 text-primary bg-[#0E1629] border-slate-700 rounded focus:ring-primary focus:ring-2 cursor-pointer animate-none"
-                        />
-                      </div>
-
-                      {useRealWebhook && (
-                        <>
-                          <div className="flex items-center justify-between border-t border-slate-850/30 pt-3">
-                            <div className="flex flex-col gap-0.5 pr-2">
-                              <label className="text-xs font-semibold text-slate-200">Real-Time Auto-Sync</label>
-                              <span className="text-[10px] text-slate-400 leading-relaxed">
-                                Automatically push updates to your Google Sheet in the background whenever transactions change.
-                              </span>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={autoSync}
-                              onChange={(e) => {
-                                setAutoSync(e.target.checked);
-                                if (typeof window !== "undefined") {
-                                  localStorage.setItem("finstream_n8n_auto_sync", e.target.checked ? "true" : "false");
-                                }
-                              }}
-                              className="w-4.5 h-4.5 text-primary bg-[#0E1629] border-slate-700 rounded focus:ring-primary focus:ring-2 cursor-pointer shrink-0"
-                            />
-                          </div>
-
-                          <div className="space-y-1.5 pt-3 border-t border-slate-850/30">
-                            <label className="text-[10px] uppercase font-bold text-slate-400">
-                              Webhook Target URL
-                            </label>
-                            <input
-                              type="url"
-                              value={webhookUrl}
-                              onChange={(e) => handleSaveWebhook(e.target.value)}
-                              placeholder="https://n8n.yourdomain.com/webhook/..."
-                              className="w-full text-xs bg-[#0E1629] border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary placeholder-slate-500"
-                            />
-                            <p className="text-[10px] text-slate-400">
-                              Endpoint must accept a HTTP POST request with transaction JSON payload.
-                            </p>
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={handleWebhookSync}
-                      disabled={useRealWebhook && !webhookUrl}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl border border-primary bg-primary text-slate-950 hover:bg-primary/90 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_12px_-3px_rgba(212,175,55,0.3)]"
-                    >
-                      🚀 Trigger n8n Webhook Sync
-                    </button>
-                  </>
-                )}
-
-                {/* Syncing Progress Overlay */}
-                {syncStep > 0 && syncStep < 6 && (
-                  <div className="py-6 space-y-6 flex flex-col items-center justify-center">
-                    {/* Glowing spinner */}
-                    <div className="relative w-16 h-16 flex items-center justify-center">
-                      <div className="absolute inset-0 rounded-full border-4 border-primary/20 animate-pulse" />
-                      <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-primary animate-spin" />
-                      <span className="text-xl">🤖</span>
-                    </div>
-
-                    <div className="w-full space-y-2 text-center">
-                      <p className="text-sm font-bold text-slate-100">
-                        {syncStep === 1 && "🔌 Connecting to webhook endpoint..."}
-                        {syncStep === 2 && "🗺 Mapping database schema fields..."}
-                        {syncStep === 3 && `📤 Uploading ${summary.count} ledger rows to target spreadsheet...`}
-                        {syncStep === 4 && "🎨 Applying royal navy and gold design presets..."}
-                        {syncStep === 5 && "✦ Injecting AI narrative summary header..."}
-                      </p>
-                      <p className="text-xs text-slate-400 font-medium">
-                        {useRealWebhook ? "Syncing to your custom server endpoint..." : "Running high-fidelity pipeline simulation..."}
-                      </p>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="w-full space-y-1">
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold tabular-nums">
-                        <span>PROGRESS</span>
-                        <span>{syncProgress}%</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all duration-500"
-                          style={{ width: `${syncProgress}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error State */}
-                {syncError && (
-                  <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-xs space-y-2 text-center text-red-400">
-                    <p className="font-bold">❌ Webhook Connection Failed</p>
-                    <p className="text-slate-400">{syncError}</p>
-                    <button
-                      onClick={() => setSyncStep(0)}
-                      className="mt-2 px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-[10px] font-bold rounded border border-red-500/30 transition-colors cursor-pointer text-red-200"
-                    >
-                      Try Again
-                    </button>
-                  </div>
-                )}
-
-                {/* Completed Sync Success State */}
-                {syncStep === 6 && (
-                  <div className="py-6 space-y-6 flex flex-col items-center justify-center text-center">
-                    <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-3xl text-emerald-400 animate-bounce">
-                      ✓
-                    </div>
-
-                    <div className="space-y-1">
-                      <h4 className="text-base font-bold text-emerald-400">Google Sheets Sync Completed!</h4>
-                      <p className="text-xs text-slate-400 max-w-sm">
-                        All <strong>{summary.count} transactions</strong> and the complete <strong>AI Narrative Summary</strong> have been successfully formatted and injected into your spreadsheet ledger.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
-                      <a
-                        href="https://docs.google.com/spreadsheets/d/1Sj99WwZ1eN37y9uN2-p_1F7lR72Vd5gQ_K_2sFwF_fI/edit?usp=sharing"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl border border-emerald-500 bg-emerald-500 hover:bg-emerald-600 text-white transition-all cursor-pointer shadow-[0_4px_12px_-3px_rgba(16,185,129,0.4)]"
-                      >
-                        田 Open Synced Workspace ↗
-                      </a>
-                      <button
-                        onClick={() => setSyncStep(0)}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-slate-100 transition-all cursor-pointer"
-                      >
-                        Configure New Sync
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

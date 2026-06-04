@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { SUPPORTED_CURRENCIES } from "@/lib/expense-shared";
+import { initializeLiveRates } from "@/lib/fx";
 
 type CurrencyCode = (typeof SUPPORTED_CURRENCIES)[number];
 
 interface CurrencyContextValue {
   currency: CurrencyCode;
   setCurrency: (c: CurrencyCode) => void;
+  ratesVersion: number;
 }
 
 const CurrencyContext = createContext<CurrencyContextValue | undefined>(undefined);
@@ -13,6 +15,7 @@ const STORAGE_KEY = "finstream:display-currency";
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
   const [currency, setCurrencyState] = useState<CurrencyCode>("INR");
+  const [ratesVersion, setRatesVersion] = useState(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -20,6 +23,11 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     if (stored && (SUPPORTED_CURRENCIES as readonly string[]).includes(stored)) {
       setCurrencyState(stored as CurrencyCode);
     }
+
+    // Initialize live exchange rates asynchronously in the background
+    initializeLiveRates().then(() => {
+      setRatesVersion((prev) => prev + 1);
+    });
   }, []);
 
   const setCurrency = (c: CurrencyCode) => {
@@ -28,7 +36,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <CurrencyContext.Provider value={{ currency, setCurrency }}>
+    <CurrencyContext.Provider value={{ currency, setCurrency, ratesVersion }}>
       {children}
     </CurrencyContext.Provider>
   );

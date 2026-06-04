@@ -134,7 +134,7 @@ function parseRawMaterialDesc(rawText: string | null) {
 
 function RawMaterialsPage() {
   const { user } = useAuth();
-  const { currency: displayCurrency } = useCurrency();
+  const { currency: displayCurrency, ratesVersion } = useCurrency();
   const navigate = useNavigate();
   const [allItems, setAllItems] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,7 +144,9 @@ function RawMaterialsPage() {
   const [selectedGroup, setSelectedGroup] = useState<string>("all");
 
   const loadRawMaterials = async () => {
-    setLoading(true);
+    if (allItems.length === 0) {
+      setLoading(true);
+    }
     const { data } = await supabase
       .from("expenses")
       .select("*")
@@ -210,7 +212,7 @@ function RawMaterialsPage() {
         invoiceDate
       };
     });
-  }, [allItems]);
+  }, [allItems, ratesVersion]);
 
   // Distinct material natures list for filter dropdown
   const distinctNatures = useMemo(() => {

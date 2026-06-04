@@ -17,7 +17,8 @@ import {
   ArrowUpRight,
   AlertTriangle,
   HelpCircle,
-  Flag
+  Flag,
+  Package
 } from "lucide-react";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { supabase } from "@/integrations/supabase/client";
@@ -55,29 +56,36 @@ interface Expense {
 // Indirect cost categories - everything that is NOT a direct cost
 const INDIRECT_CATEGORIES = [
   "Admin Costs",
-  "Advertisement",
+  "Advertising & Marketing",
+  "Auditors Remuneration",
   "Business Promotion",
+  "Carriage outwards",
+  "Electricity Charges - office",
   "Insurance",
   "Investment",
   "Investment & Other Assets",
   "Investment and other assets",
-  "Legal",
-  "Marketing expense",
+  "Legal and Professional Expenses",
+  "Motor Car expenses",
+  "Other expenses",
+  "Other repairs",
+  "Printing and Stationery",
   "Rent",
+  "Royalty",
+  "Salary",
   "Taxes",
   "Telecommunication",
   "Travel",
   "Website",
-  "Other expenses",
 ];
 
 // Group overhead categories for the summary cards
 const OVERHEAD_GROUPS: Record<string, string[]> = {
-  "Marketing & Ads": ["Advertisement", "Business Promotion", "Marketing expense"],
-  "Travel & Logistics": ["Travel", "Courier/Transportation"],
+  "Marketing & Ads": ["Advertising & Marketing", "Business Promotion"],
+  "Travel & Logistics": ["Travel", "Courier/Transportation", "Motor Car expenses", "Carriage outwards"],
   "Software & Tech": ["Website", "Telecommunication"],
-  "Professional & Rent": ["Legal", "Rent", "Insurance"],
-  "General Overhead": ["Admin Costs", "Taxes", "Investment", "Investment & Other Assets", "Investment and other assets", "Other expenses", "Staff Welfare"],
+  "Professional & Rent": ["Legal and Professional Expenses", "Rent", "Insurance", "Auditors Remuneration", "Electricity Charges - office", "Other repairs"],
+  "General Overhead": ["Salary", "Admin Costs", "Taxes", "Investment", "Investment & Other Assets", "Investment and other assets", "Other expenses", "Staff Welfare", "Royalty", "Printing and Stationery"],
 };
 
 function getOverheadGroup(expenseCategory: string | undefined): string {
@@ -90,7 +98,7 @@ function getOverheadGroup(expenseCategory: string | undefined): string {
 
 function IndirectCostPage() {
   const { user } = useAuth();
-  const { currency: displayCurrency } = useCurrency();
+  const { currency: displayCurrency, ratesVersion } = useCurrency();
   const navigate = useNavigate();
   
   const [allItems, setAllItems] = useState<Expense[]>([]);
@@ -105,7 +113,9 @@ function IndirectCostPage() {
   const [customToDate, setCustomToDate] = useState<string>("");
 
   const loadIndirectCosts = async () => {
-    setLoading(true);
+    if (allItems.length === 0) {
+      setLoading(true);
+    }
     const { data } = await supabase
       .from("expenses")
       .select("*")
@@ -605,9 +615,9 @@ function IndirectCostPage() {
                 {formatCurrency(stats.dominantOverheadSpent, "INR")} ({stats.dominantOverheadPercent.toFixed(1)}%)
               </div>
               {stats.hasDominantWarning && (
-                <div className="text-[9px] font-bold text-red-400 flex items-center gap-1 mt-1 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded w-max animate-pulse">
+                <div className="text-[9px] font-bold text-red-400 flex items-center gap-1 mt-1 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded w-max animate-pulse" title="This cost center represents more than 50% of your total operating overhead portfolio.">
                   <Flag className="w-3 h-3" />
-                  Review Required
+                  Concentration &gt;50%
                 </div>
               )}
             </div>
@@ -638,16 +648,21 @@ function IndirectCostPage() {
           <div className="card-luxury p-5 rounded-xl border bg-card space-y-4">
             <h3 className="font-semibold text-sm tracking-tight text-foreground flex items-center gap-2 text-amber-500">
               <AlertTriangle className="w-4.5 h-4.5 text-amber-500" />
-              Budget Alerts
+              Allocation Concentration Alerts
             </h3>
             <div className="space-y-3">
               {stats.flaggedOverheadCategories.length === 0 ? (
-                <div className="text-xs text-emerald-400 p-4 text-center bg-emerald-500/[0.02] border border-emerald-500/10 rounded-lg">✓ No categories exceed 20% limit.</div>
+                <div className="text-xs text-emerald-400 p-4 text-center bg-emerald-500/[0.02] border border-emerald-500/10 rounded-lg">✓ No categories exceed 20% overhead share.</div>
               ) : (
                 stats.flaggedOverheadCategories.map((c: { name: string; spend: number; ratio: number }) => (
-                  <div key={c.name} className="border border-red-500/20 bg-red-500/[0.015] p-3 rounded-lg flex justify-between text-xs">
-                    <span className="font-bold truncate">{c.name}</span>
-                    <span className="text-red-400 font-bold">{c.ratio.toFixed(0)}%</span>
+                  <div key={c.name} className="border border-red-500/20 bg-red-500/[0.015] p-3 rounded-lg flex flex-col gap-1 text-xs">
+                    <div className="flex justify-between font-bold">
+                      <span className="truncate">{c.name}</span>
+                      <span className="text-red-400">{c.ratio.toFixed(0)}% of overhead</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      Exceeds the recommended 20% concentration threshold
+                    </div>
                   </div>
                 ))
               )}
@@ -673,33 +688,75 @@ function IndirectCostPage() {
         </section>
 
         <section className="card-luxury rounded-xl border bg-card flex-1 flex flex-col min-h-[400px]">
-          <div className="p-5 border-b border-[rgba(212,175,55,0.18)] flex flex-col sm:flex-row justify-between gap-4">
-            <h3 className="font-semibold text-sm flex items-center gap-2">
+          <div className="p-5 border-b border-[rgba(212,175,55,0.18)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[rgba(212,175,55,0.01)]">
+            <h3 className="font-semibold text-sm tracking-tight text-foreground flex items-center gap-2">
               <Building2 className="w-4 h-4 text-[var(--primary)]" />
               Audit Log ({filteredRecords.length} records)
             </h3>
+            
             <div className="flex flex-wrap items-center gap-2.5">
-              <Input
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 text-xs h-8"
-              />
-              <div className="flex items-center gap-1 border rounded-md px-2 h-8">
-                {["KS", "TI", "CPM", "AAS"].map((ent) => (
-                  <button
-                    key={ent}
-                    onClick={() => setSelectedEntities(prev => prev.includes(ent) ? prev.filter(e => e !== ent) : [...prev, ent])}
-                    className={cn("px-2 py-0.5 rounded text-[10px] font-bold", selectedEntities.includes(ent) ? "bg-primary text-white" : "text-muted-foreground")}
-                  >
-                    {ent}
-                  </button>
-                ))}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  type="text"
+                  placeholder="Search materials, vendors..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full sm:w-[240px] pl-9 text-xs h-8 border-[rgba(212,175,55,0.2)] bg-card"
+                />
               </div>
-              <select value={selectedGroup} onChange={(e) => setSelectedGroup(e.target.value)} className="text-xs h-8 bg-card border rounded px-2">
-                <option value="all">All Groups</option>
-                {distinctGroups.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
+
+              {/* Entity Multi-Select Pills */}
+              <div className="flex items-center gap-1.5 border border-[rgba(212,175,55,0.2)] rounded-md px-2 bg-card h-8">
+                <Filter className="w-3.5 h-3.5 text-muted-foreground mr-1 shrink-0" />
+                <button
+                  onClick={() => setSelectedEntities([])}
+                  className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all",
+                    selectedEntities.length === 0
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  All
+                </button>
+                {["KS", "TI", "CPM", "AAS"].map((ent) => {
+                  const isSelected = selectedEntities.includes(ent);
+                  return (
+                    <button
+                      key={ent}
+                      onClick={() => {
+                        setSelectedEntities(prev =>
+                          prev.includes(ent) ? prev.filter(e => e !== ent) : [...prev, ent]
+                        );
+                      }}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all",
+                        isSelected
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {ent}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Group Filter */}
+              <div className="flex items-center border border-[rgba(212,175,55,0.2)] rounded-md px-2.5 bg-card h-8">
+                <Package className="w-3 h-3 text-muted-foreground mr-2 shrink-0" />
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => setSelectedGroup(e.target.value)}
+                  className="text-xs bg-transparent text-foreground border-none outline-none pr-4 font-medium max-w-[150px] cursor-pointer"
+                >
+                  <option value="all">All Groups</option>
+                  {distinctGroups.map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 

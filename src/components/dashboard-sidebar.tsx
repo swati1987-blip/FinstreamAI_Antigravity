@@ -14,22 +14,101 @@ const items = [
   { label: "Settings", icon: Settings, to: "/settings" as const },
 ];
 
+import { useState, useRef } from "react";
+
 export function DashboardSidebar() {
   const { user, signOut } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  const [particles, setParticles] = useState<{ id: number; angle: number; distance: number; duration: number; size: number; color: string }[]>([]);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const particleIdRef = useRef(0);
+
+  const handleLogoClick = () => {
+    if (isAnimating) return;
+    setIsAnimating(true);
+    
+    // Reset isAnimating state after 1.2s (matching zoom-spin animation duration)
+    setTimeout(() => setIsAnimating(false), 1200);
+
+    // Create a high-density 24-particle radial burst of gold, teal, cyan, and white sparkles
+    const newParticles = Array.from({ length: 24 }).map(() => {
+      const angle = Math.random() * Math.PI * 2; // Random 360-degree direction
+      const distance = 60 + Math.random() * 85; // Pushed further outward (60px to 145px)
+      const duration = 700 + Math.random() * 500; // Animation duration (700ms to 1200ms)
+      const size = 3 + Math.random() * 6; // Sparkle size (3px to 9px)
+      const colors = ["#D4AF37", "#C5A059", "#00F2FE", "#00C6FF", "#FFFFFF"]; // Gold, Teal, Cyan, White
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      
+      particleIdRef.current += 1;
+      return {
+        id: particleIdRef.current,
+        angle,
+        distance,
+        duration,
+        size,
+        color,
+      };
+    });
+
+    setParticles((prev) => [...prev, ...newParticles]);
+
+    // Clean up particles array when they fade out (1.2s)
+    setTimeout(() => {
+      setParticles((prev) => prev.filter((p) => !newParticles.find((np) => np.id === p.id)));
+    }, 1200);
+  };
+
   return (
     <aside className="hidden md:flex w-64 shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)] border-r border-[var(--border)]">
-      <div className="px-5 py-5 border-b border-[var(--border)]">
-        <div className="flex items-center gap-3">
-          <img
-            src={logo}
-            alt="FinStream logo"
-            className="w-11 h-11 rounded-md object-cover ring-1 ring-[var(--primary)]/50 shadow-md transition-all duration-300 hover:scale-105 hover:rotate-1"
-          />
-          <div>
-            <div className="font-semibold tracking-tight text-[var(--sidebar-accent-foreground)] leading-tight">FinStream AI</div>
-            <div className="text-[8px] uppercase tracking-[0.2em] text-[var(--primary)] leading-none mt-1">Smart Expense Flow</div>
+      <div className="px-5 py-6 border-b border-[var(--border)] flex flex-col items-center text-center">
+        <div 
+          onClick={handleLogoClick}
+          className="flex flex-col items-center gap-3 cursor-pointer select-none group relative"
+        >
+          <div className="relative w-20 h-20 flex items-center justify-center shrink-0">
+            <div className="relative w-20 h-20 rounded-xl overflow-hidden ring-2 ring-[var(--primary)]/60 shadow-lg group-hover:shadow-[0_0_15px_rgba(212,175,55,0.4)] transition-all duration-500">
+              <img
+                src={logo}
+                alt="FinStream logo"
+                className={`w-20 h-20 object-cover transition-all duration-500 group-hover:scale-105 ${
+                  isAnimating ? "animate-logo-pulse-sway" : ""
+                }`}
+              />
+              <div className={`logo-shine-effect ${isAnimating ? "animate-logo-shine" : ""}`} />
+            </div>
+            {/* Concentric expanding shockwave ring */}
+            {isAnimating && <div className="logo-ripple-ring animate-logo-ripple" />}
+            {particles.map((p) => (
+              <div
+                key={p.id}
+                className="absolute pointer-events-none animate-particle rounded-full"
+                style={{
+                  '--tx': `${Math.cos(p.angle) * p.distance}px`,
+                  '--ty': `${Math.sin(p.angle) * p.distance}px`,
+                  '--duration': `${p.duration}ms`,
+                  left: '50%',
+                  top: '50%',
+                  width: `${p.size}px`,
+                  height: `${p.size}px`,
+                  backgroundColor: p.color,
+                  boxShadow: `0 0 8px ${p.color}`,
+                  transform: 'translate(-50%, -50%)',
+                } as React.CSSProperties}
+              />
+            ))}
+          </div>
+          <div className="flex flex-col items-center">
+            <div className={`font-semibold tracking-tight text-[var(--sidebar-accent-foreground)] text-base leading-tight transition-all duration-300 ${
+              isAnimating ? "animate-text-shimmer" : ""
+            }`}>
+              FinStream AI
+            </div>
+            <div className={`text-[9px] uppercase tracking-[0.2em] text-[var(--primary)] leading-none mt-1.5 transition-all duration-300 ${
+              isAnimating ? "animate-subtitle-pulse" : ""
+            }`}>
+              Smart Expense Flow
+            </div>
           </div>
         </div>
       </div>

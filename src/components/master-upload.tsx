@@ -392,7 +392,7 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
 
           if (pastExpenses) {
             pastExpenses.forEach((exp) => {
-              if (exp.vendor && exp.expense_category && exp.expense_category !== "Other expenses") {
+              if (exp.vendor && exp.expense_category) {
                 rulesData.push({
                   vendor_pattern: exp.vendor,
                   main_category: exp.category || "Personal",
@@ -418,7 +418,8 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
         const vendorRulesMap = new Map<string, MemoryRule>();
 
         rulesData.forEach((rule: MemoryRule) => {
-          const vendorKey = rule.vendor_pattern.toLowerCase().trim();
+          const cleanedRuleVendor = cleanVendorName(rule.vendor_pattern);
+          const vendorKey = cleanedRuleVendor.toLowerCase().trim();
           if (rule.amount != null) {
             const preciseKey = `${vendorKey}|${rule.amount}`;
             if (!groupRulesMap.has(preciseKey)) groupRulesMap.set(preciseKey, []);
@@ -486,18 +487,22 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
           // Map description or categorize
           let expCategory = "Other expenses";
           const EXPENSE_CATEGORIES_LOWER = [
-            "advertisement", "admin costs", "business promotion", "courier/transportation",
-            "fuel", "insurance", "investment", "legal", "marketing expense", "other expenses",
-            "raw material", "rent", "repairs and maintenance", "salary/wages", "staff welfare",
-            "taxes", "telecommunication", "travel", "website"
+            "advertising & marketing", "admin costs", "business promotion", "courier/transportation",
+            "fuel", "insurance", "investment", "legal and professional expenses", "other expenses",
+            "raw material", "rent", "repairs and maintenance", "salary", "salary/wages", "staff welfare",
+            "taxes", "telecommunication", "travel", "website",
+            "auditors remuneration", "carriage outwards", "royalty", "motor car expenses",
+            "electricity charges - office", "printing and stationery", "other repairs"
           ];
           const matchedIndex = EXPENSE_CATEGORIES_LOWER.indexOf(rawDescription.toLowerCase().trim());
           if (matchedIndex !== -1) {
             const EXPENSE_CATEGORIES_ORIGINAL = [
-              "Advertisement", "Admin Costs", "Business Promotion", "Courier/Transportation",
-              "Fuel", "Insurance", "Investment", "Legal", "Marketing expense", "Other expenses",
-              "Raw material", "Rent", "Repairs and maintenance", "Salary/Wages", "Staff Welfare",
-              "Taxes", "Telecommunication", "Travel", "Website"
+              "Advertising & Marketing", "Admin Costs", "Business Promotion", "Courier/Transportation",
+              "Fuel", "Insurance", "Investment", "Legal and Professional Expenses", "Other expenses",
+              "Raw material", "Rent", "Repairs and maintenance", "Salary", "Salary/Wages", "Staff Welfare",
+              "Taxes", "Telecommunication", "Travel", "Website",
+              "Auditors Remuneration", "Carriage outwards", "Royalty", "Motor Car expenses",
+              "Electricity Charges - office", "Printing and Stationery", "Other repairs"
             ];
             expCategory = EXPENSE_CATEGORIES_ORIGINAL[matchedIndex];
           }
@@ -720,21 +725,51 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
               if (isDefaultPersonalNone && hasNewBetterClassification) {
                 console.log(`[MasterUpload] Auto-reclassifying existing default transaction: ${existingExp.id} -> category: ${matchedRow.category}, entity: ${matchedRow.company_entity}, expense_category: ${matchedRow.expense_category}`);
                 
-                void supabase
-                  .from("expenses")
-                  .update({
+                const performAutoReclassify = async () => {
+                  const updatePayload = {
                     category: matchedRow.category,
                     main_category: matchedRow.category,
                     company_entity: matchedRow.company_entity,
                     expense_category: matchedRow.expense_category,
                     raw_text: matchedRow.raw_text,
-                  })
-                  .eq("id", existingExp.id)
-                  .then(({ error }) => {
-                    if (error) {
-                      console.error(`[MasterUpload] Auto-reclassification failed for ${existingExp.id}:`, error);
-                    }
-                  });
+                  };
+
+                  let { error } = await supabase
+                    .from("expenses")
+                    .update(updatePayload)
+                    .eq("id", existingExp.id);
+
+                  if (error && (error.code === "42703" || (error.message && error.message.includes("column")))) {
+                    console.warn(`[MasterUpload] Reclassification Tier 1 failed (column undefined). Retrying Tier 2 (without main_category)...`);
+                    const noMainCatPayload = { ...updatePayload };
+                    delete (noMainCatPayload as any).main_category;
+                    const res = await supabase
+                      .from("expenses")
+                      .update(noMainCatPayload)
+                      .eq("id", existingExp.id);
+                    error = res.error;
+                  }
+
+                  if (error && (error.code === "42703" || (error.message && error.message.includes("column")))) {
+                    console.warn(`[MasterUpload] Reclassification Tier 2 failed (column undefined). Retrying Tier 3 (legacy)...`);
+                    const res = await supabase
+                      .from("expenses")
+                      .update({
+                        category: matchedRow.category,
+                        raw_text: matchedRow.raw_text,
+                      })
+                      .eq("id", existingExp.id);
+                    error = res.error;
+                  }
+
+                  if (error) {
+                    console.error(`[MasterUpload] Auto-reclassification failed for ${existingExp.id}:`, error);
+                  } else {
+                    console.log(`[MasterUpload] Auto-reclassified successfully!`);
+                  }
+                };
+
+                void performAutoReclassify();
               }
 
               console.log(`[MasterUpload] Skipping duplicate statement entry: ${newRow.vendor} | ${newAmt} | ${newDate} (Matched database entry with date ${pool[matchIndex].date})`);

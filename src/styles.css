@@ -206,6 +206,13 @@ html, body, aside, main, header, section, .card-luxury, table, tr, th, td, butto
     border: 1px solid rgba(212, 175, 55, 0.25);
     box-shadow: var(--shadow-luxury);
   }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
 
 /* Elegant Native Gold Cursor */
@@ -270,4 +277,143 @@ a, button, select, input, textarea, [role='button'], .cursor-pointer, tr.cursor-
 .neon-cyber .inline-flex.items-center.px-2\.5.py-0\.5.rounded-full.text-xs.font-medium.bg-primary\/10.text-primary.border.border-primary\/30 {
   box-shadow: 0 0 8px rgba(0, 242, 254, 0.35);
   text-shadow: 0 0 4px rgba(0, 242, 254, 0.2);
+}
+
+/* ==========================================================================
+   ✨ PREMIUM LOGO MICRO-INTERACTION ANIMATIONS
+   ========================================================================== */
+@keyframes logo-pulse-sway {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  30% {
+    transform: scale(1.15) rotate(8deg);
+  }
+  60% {
+    transform: scale(1.1) rotate(-4deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.animate-logo-pulse-sway {
+  animation: logo-pulse-sway 0.8s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes logo-shine {
+  0% {
+    left: -150%;
+  }
+  60%, 100% {
+    left: 150%;
+  }
+}
+
+.logo-shine-effect {
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.45) 30%,
+    rgba(255, 255, 255, 0.8) 50%,
+    rgba(255, 255, 255, 0.45) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: skewX(-25deg);
+  pointer-events: none;
+}
+
+.animate-logo-shine {
+  animation: logo-shine 1s ease-in-out forwards;
+}
+
+@keyframes ripple-wave {
+  0% {
+    width: 80px;
+    height: 80px;
+    opacity: 0.8;
+    border-width: 2px;
+  }
+  100% {
+    width: 170px;
+    height: 170px;
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+.logo-ripple-ring {
+  position: absolute;
+  border: 1px solid var(--color-primary);
+  border-radius: 9999px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  left: 50%;
+  top: 50%;
+  box-shadow: 0 0 10px var(--color-primary), inset 0 0 10px var(--color-primary);
+}
+
+.animate-logo-ripple {
+  animation: ripple-wave 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes text-glow-shimmer {
+  0% {
+    text-shadow: 0 0 0px transparent;
+    color: var(--sidebar-accent-foreground);
+  }
+  50% {
+    text-shadow: 0 0 15px var(--color-primary), 0 0 30px var(--color-primary);
+    color: #FFFFFF;
+  }
+  100% {
+    text-shadow: 0 0 0px transparent;
+    color: var(--sidebar-accent-foreground);
+  }
+}
+
+.animate-text-shimmer {
+  animation: text-glow-shimmer 1s ease-in-out;
+}
+
+@keyframes subtitle-pulse {
+  0% {
+    transform: scale(1);
+    letter-spacing: 0.2em;
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.05);
+    letter-spacing: 0.22em;
+    filter: brightness(1.3);
+  }
+  100% {
+    transform: scale(1);
+    letter-spacing: 0.2em;
+    filter: brightness(1);
+  }
+}
+
+.animate-subtitle-pulse {
+  animation: subtitle-pulse 1s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes particle-burst {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(var(--tx), var(--ty)) scale(0);
+    opacity: 0;
+  }
+}
+
+.animate-particle {
+  animation: particle-burst var(--duration, 800ms) cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
 }
