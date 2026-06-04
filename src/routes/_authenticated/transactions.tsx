@@ -608,7 +608,7 @@ function TransactionsPage() {
         export_time: currentExportTime,
         timeframe: incrementalOnly ? "Incremental Transactions Auto-Sync" : "Transactions Auto-Sync",
         last_export_time: lastExportTime || null,
-        total_amount_inr: chronologicalTransactions.reduce((sum, item) => sum + convertAmount(item.amount, item.currency, "INR", item.created_at), 0),
+        total_amount_inr: chronologicalTransactions.reduce((sum, item) => sum + convertAmount(item.amount, item.currency, "INR", item.date || item.created_at), 0),
         transaction_count: chronologicalTransactions.length,
         deleted_count: queuedDeletedIds.length,
         deleted_ids: queuedDeletedIds,
@@ -624,7 +624,7 @@ function TransactionsPage() {
           entity: r.company_entity || "None",
           expense_category: r.expense_category || "Other expenses",
           description: r.raw_text || "",
-          amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at),
+          amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.date || r.created_at),
           currency: r.currency,
           created_at: r.created_at
         }))
@@ -1393,7 +1393,7 @@ function TransactionsPage() {
       r.company_entity || "None",
       r.expense_category || "Other expenses",
       (r.raw_text || "").replace(/\t/g, " "),
-      convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at).toFixed(2),
+      convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.date || r.created_at).toFixed(2),
       r.currency,
     ]);
 
@@ -1456,7 +1456,7 @@ function TransactionsPage() {
       export_time: currentExportTime,
       timeframe: incrementalOnly ? "Incremental Transactions Export" : "Full Transactions Export",
       last_export_time: lastExportTime || null,
-      total_amount_inr: chronologicalTransactions.reduce((sum, item) => sum + convertAmount(item.amount, item.currency, "INR", item.created_at), 0),
+      total_amount_inr: chronologicalTransactions.reduce((sum, item) => sum + convertAmount(item.amount, item.currency, "INR", item.date || item.created_at), 0),
       transaction_count: chronologicalTransactions.length,
       deleted_count: queuedDeletedIds.length,
       deleted_ids: queuedDeletedIds,
@@ -1472,7 +1472,7 @@ function TransactionsPage() {
         entity: r.company_entity || "None",
         expense_category: r.expense_category || "Other expenses",
         description: r.raw_text || "",
-        amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at),
+        amount_inr: convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.date || r.created_at),
         currency: r.currency,
         created_at: r.created_at
       }))
@@ -1873,7 +1873,7 @@ function TransactionsPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground whitespace-nowrap">
                         {formatCurrency(
-                          convertAmount(Number(e.amount) || 0, e.currency, displayCurrency, e.created_at),
+                          convertAmount(Number(e.amount) || 0, e.currency, displayCurrency, e.date || e.created_at),
                           displayCurrency,
                         )}
                         {e.currency !== displayCurrency && (

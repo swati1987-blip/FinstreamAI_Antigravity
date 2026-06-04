@@ -463,7 +463,7 @@ function Dashboard() {
         Number(e.amount) || 0,
         e.currency || "INR",
         displayCurrency,
-        e.created_at,
+        e.date || e.created_at,
       );
       total += amt;
       totalCount++;
@@ -1818,7 +1818,7 @@ function Dashboard() {
                         Number(e.amount) || 0,
                         e.currency || "INR",
                         displayCurrency,
-                        e.created_at,
+                        e.date || e.created_at,
                       );
 
                       const cleanVendor = cleanVendorName(e.vendor);

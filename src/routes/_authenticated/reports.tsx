@@ -381,7 +381,7 @@ function ReportsPage() {
     let total = 0, business = 0, personal = 0, investments = 0;
     let directSpend = 0, indirectSpend = 0;
     for (const r of filteredRows) {
-      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
       total += amt;
       if (r.category === "Business") {
         business += amt;
@@ -435,12 +435,12 @@ function ReportsPage() {
         vendor: r.vendor,
       });
       if (classified.type !== "Direct") continue;
-      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
       
       const parsed = parseDescriptionDetails(r.raw_text, Number(r.amount) || 0);
       let displayGstStr = "—";
       if (parsed.gstNum !== null) {
-        const convertedGst = convertAmount(parsed.gstNum, r.currency || "INR", displayCurrency, r.created_at);
+        const convertedGst = convertAmount(parsed.gstNum, r.currency || "INR", displayCurrency, effectiveDate(r));
         displayGstStr = formatCurrency(convertedGst, displayCurrency);
       }
 
@@ -476,7 +476,7 @@ function ReportsPage() {
         vendor: r.vendor,
       });
       if (classified.type !== "Indirect") continue;
-      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
       const groupKey = normalizeCategory(r.expense_category || classified.category);
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({
@@ -497,7 +497,7 @@ function ReportsPage() {
     let business = 0, directSpend = 0, indirectSpend = 0;
     for (const r of costFilteredRows) {
       if (r.category !== "Business") continue;
-      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
       business += amt;
       const classified = classifyExpense({
         category: r.category,
@@ -517,7 +517,7 @@ function ReportsPage() {
     const map: Record<string, number> = {};
     for (const r of filteredRows) {
       const cat = normalizeCategory(r.expense_category || "Other expenses");
-      map[cat] = (map[cat] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      map[cat] = (map[cat] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
     }
     return Object.entries(map)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
@@ -528,7 +528,7 @@ function ReportsPage() {
     const map: Record<string, number> = {};
     for (const r of filteredRows) {
       const entity = r.company_entity || "None";
-      map[entity] = (map[entity] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      map[entity] = (map[entity] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
     }
     return Object.entries(map)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
@@ -539,7 +539,7 @@ function ReportsPage() {
     const map: Record<string, number> = {};
     for (const r of filteredRows) {
       const cat = r.main_category || r.category || "Personal";
-      map[cat] = (map[cat] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      map[cat] = (map[cat] || 0) + convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
     }
     return Object.entries(map)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
@@ -620,7 +620,7 @@ function ReportsPage() {
     for (const r of budgetRows) {
       const cat = normalizeCategory(r.expense_category);
       spentMap[cat] = (spentMap[cat] || 0) +
-        convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
+        convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", effectiveDate(r));
     }
 
     const scale = 
@@ -651,7 +651,7 @@ function ReportsPage() {
     const catINR: Record<string, number> = {};
 
     for (const r of filteredRows) {
-      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", effectiveDate(r));
       if (amt > largestAmt) { largestAmt = amt; largestTx = r; }
       vendorCount[r.vendor || "Unknown"] = (vendorCount[r.vendor || "Unknown"] || 0) + 1;
       const cat = normalizeCategory(r.expense_category || "Other expenses");
@@ -675,7 +675,7 @@ function ReportsPage() {
       if (diff > windowMs && diff <= windowMs * 2) {
         const cat = normalizeCategory(r.expense_category || "Other expenses");
         priorCatINR[cat] = (priorCatINR[cat] || 0) +
-          convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
+          convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", effectiveDate(r));
       }
     }
 
@@ -714,7 +714,7 @@ function ReportsPage() {
     ]);
 
     for (const r of filteredRows) {
-      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at);
+      const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", effectiveDate(r));
       const cat = normalizeCategory(r.expense_category || "Other expenses");
       catINR[cat] = (catINR[cat] || 0) + amt;
 
@@ -836,7 +836,7 @@ function ReportsPage() {
     const matched = filteredRows.filter((r) => normalizeCategory(r.expense_category || "Other expenses") === target);
     let total = 0;
     for (const r of matched)
-      total += convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+      total += convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
     const count = matched.length;
     const avg = count > 0 ? total / count : 0;
     const percentage = summary.total > 0 ? (total / summary.total) * 100 : 0;
@@ -869,7 +869,7 @@ function ReportsPage() {
         const yr = d.getFullYear().toString();
         const cat = normalizeCategory(r.expense_category || "Other expenses");
         if (!categories.includes(cat)) continue;
-        const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+        const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
         if (!map[yr]) map[yr] = {};
         map[yr][cat] = (map[yr][cat] || 0) + amt;
       }
@@ -884,7 +884,7 @@ function ReportsPage() {
         const qtr = `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
         const cat = normalizeCategory(r.expense_category || "Other expenses");
         if (!categories.includes(cat)) continue;
-        const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+        const amt = convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
         if (!map[qtr]) map[qtr] = {};
         map[qtr][cat] = (map[qtr][cat] || 0) + amt;
       }
@@ -914,7 +914,7 @@ function ReportsPage() {
       else if (timeframe === "Month" || timeframe === "Quarter") key = format(d, "MMM dd");
       else key = format(d, "MMM yyyy");
       map[key] = (map[key] || 0) +
-        convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, r.created_at);
+        convertAmount(Number(r.amount) || 0, r.currency || "INR", displayCurrency, effectiveDate(r));
     }
     return Object.entries(map).map(([date, amount]) => ({ date, amount: parseFloat(amount.toFixed(2)) }));
   }, [filteredRows, timeframe, displayCurrency, ratesVersion]);
@@ -929,7 +929,7 @@ function ReportsPage() {
       r.company_entity || "",
       r.expense_category ? normalizeCategory(r.expense_category) : "",
       (r.raw_text || "").replace(/,/g, ";"),
-      convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", r.created_at).toFixed(2),
+      convertAmount(Number(r.amount) || 0, r.currency || "INR", "INR", effectiveDate(r)).toFixed(2),
       r.currency,
     ]);
     const csv = [headers, ...body].map((row) => row.join(",")).join("\n");
@@ -2119,7 +2119,7 @@ function ReportsPage() {
                               </tr>
                             ) : (
                               drilldownStats.transactions.map((t, i) => {
-                                const conv = convertAmount(Number(t.amount) || 0, t.currency || "INR", displayCurrency, t.created_at);
+                                const conv = convertAmount(Number(t.amount) || 0, t.currency || "INR", displayCurrency, effectiveDate(t));
                                 return (
                                   <tr key={i} className="border-b border-border hover:bg-muted/40 transition-colors">
                                     <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">
