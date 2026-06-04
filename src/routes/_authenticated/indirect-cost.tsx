@@ -71,8 +71,10 @@ const INDIRECT_CATEGORIES = [
   "Other repairs",
   "Printing and Stationery",
   "Rent",
+  "Repairs & Maintenance",
   "Royalty",
   "Salary",
+  "Staff Welfare",
   "Taxes",
   "Telecommunication",
   "Travel",
@@ -84,7 +86,7 @@ const OVERHEAD_GROUPS: Record<string, string[]> = {
   "Marketing & Ads": ["Advertising & Marketing", "Business Promotion"],
   "Travel & Logistics": ["Travel", "Courier/Transportation", "Motor Car expenses", "Carriage outwards"],
   "Software & Tech": ["Website", "Telecommunication"],
-  "Professional & Rent": ["Legal and Professional Expenses", "Rent", "Insurance", "Auditors Remuneration", "Electricity Charges - office", "Other repairs"],
+  "Professional & Rent": ["Legal and Professional Expenses", "Rent", "Insurance", "Auditors Remuneration", "Electricity Charges - office", "Other repairs", "Repairs & Maintenance"],
   "General Overhead": ["Salary", "Admin Costs", "Taxes", "Investment", "Investment & Other Assets", "Investment and other assets", "Other expenses", "Staff Welfare", "Royalty", "Printing and Stationery"],
 };
 
@@ -219,7 +221,7 @@ function IndirectCostPage() {
         }
         return true; // All
       });
-  }, [allItems, selectedPeriod, customFromDate, customToDate]);
+  }, [allItems, selectedPeriod, customFromDate, customToDate, ratesVersion]);
 
   // Filtered records for the ledger list (strictly indirect)
   const filteredRecords = useMemo(() => {
@@ -787,22 +789,35 @@ function IndirectCostPage() {
                 </thead>
                 <tbody className="divide-y divide-[rgba(212,175,55,0.08)]">
                   {filteredRecords.map((record) => (
-                    <tr key={record.id} onClick={() => void navigate({ to: "/transactions", search: { edit: record.id } })} className="hover:bg-[rgba(212,175,55,0.025)] transition-colors cursor-pointer">
-                      <td className="py-3 px-2.5 text-muted-foreground whitespace-nowrap">
-                        <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 shrink-0" />{format(record.invoiceDate, "dd-MMM-yy")}</div>
+                    <tr 
+                      key={record.id} 
+                      onClick={() => void navigate({ to: "/transactions", search: { edit: record.id } })} 
+                      className="hover:bg-[rgba(212,175,55,0.025)] transition-colors duration-150 cursor-pointer"
+                    >
+                      <td className="py-3.5 px-2.5 text-muted-foreground whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-[var(--primary)]/60 shrink-0" />
+                          {format(record.invoiceDate, "dd-MMM-yy")}
+                        </div>
                       </td>
-                      <td className="py-3 px-2.5 font-medium text-foreground max-w-[120px] whitespace-normal break-words">{cleanVendorName(record.vendor)}</td>
-                      <td className="py-3 px-2.5 text-muted-foreground text-[11px] max-w-[160px] whitespace-normal break-words">{record.parsed.materialType || "—"}</td>
-                      <td className="py-3 px-2.5 max-w-[100px] whitespace-normal break-words">
+                      <td className="py-3.5 px-2.5 font-medium text-foreground max-w-[120px] whitespace-normal break-words">{cleanVendorName(record.vendor)}</td>
+                      <td className="py-3.5 px-2.5 text-muted-foreground text-[11px] max-w-[160px] whitespace-normal break-words" title={record.parsed.materialType || record.raw_text || ""}>{record.parsed.materialType || "—"}</td>
+                      <td className="py-3.5 px-2.5 max-w-[100px] whitespace-normal break-words">
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[rgba(212,175,55,0.06)] border border-[rgba(212,175,55,0.15)] inline-block">{record.expense_category || "Other"}</span>
                       </td>
-                      <td className="py-3 px-2.5 font-medium max-w-[100px] whitespace-normal break-words">{record.overheadGroup}</td>
-                      <td className="py-3 px-2.5 text-right font-mono whitespace-nowrap">{record.parsed.gstNum !== null ? formatCurrency(record.parsed.gstNum, record.currency) : "—"}</td>
-                      <td className="py-3 px-2.5 text-center">
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-muted inline-block">{record.company_entity || "None"}</span>
+                      <td className="py-3.5 px-2.5 font-medium max-w-[100px] whitespace-normal break-words">{record.overheadGroup}</td>
+                      <td className="py-3.5 px-2.5 text-right font-mono whitespace-nowrap">{record.parsed.gstNum !== null ? formatCurrency(record.parsed.gstNum, record.currency) : "—"}</td>
+                      <td className="py-3.5 px-2.5 text-center">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase ${
+                          record.company_entity && record.company_entity !== "None"
+                            ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] border border-[rgba(212,175,55,0.3)] shadow-sm"
+                            : "bg-muted text-muted-foreground"
+                        }`}>
+                          {record.company_entity || "None"}
+                        </span>
                       </td>
-                      <td className="py-3 px-2.5 text-right font-medium text-muted-foreground whitespace-nowrap">{formatCurrency(record.amount, record.currency)}</td>
-                      <td className="py-3 px-2.5 text-right font-bold text-foreground whitespace-nowrap">{formatCurrency(record.amountInINR, "INR")}</td>
+                      <td className="py-3.5 px-2.5 text-right font-medium text-muted-foreground whitespace-nowrap">{formatCurrency(record.amount, record.currency)}</td>
+                      <td className="py-3.5 px-2.5 text-right font-bold text-foreground whitespace-nowrap">{formatCurrency(record.amountInINR, "INR")}</td>
                     </tr>
                   ))}
                 </tbody>

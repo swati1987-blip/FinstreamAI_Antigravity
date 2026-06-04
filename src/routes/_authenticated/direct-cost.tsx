@@ -170,7 +170,7 @@ function DirectCostPage() {
         }
         return true; // All
       });
-  }, [allItems, selectedPeriod, customFromDate, customToDate]);
+  }, [allItems, selectedPeriod, customFromDate, customToDate, ratesVersion]);
 
   // 1. Entity level filters + Totality calculations
   const filteredRecords = useMemo(() => {
