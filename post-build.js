@@ -11,6 +11,27 @@ try {
       delete data.triggers;
       console.log('[Post-Build] Successfully removed empty triggers block from wrangler.json');
     }
+
+    // Resolve LOVABLE_API_KEY from environment or local .env
+    let apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) {
+      const envPath = path.resolve('.env');
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf-8');
+        const match = envContent.match(/^LOVABLE_API_KEY=["']?([^"'\r\n]+)["']?/m);
+        if (match) {
+          apiKey = match[1];
+        }
+      }
+    }
+
+    if (apiKey) {
+      if (!data.vars) data.vars = {};
+      data.vars.LOVABLE_API_KEY = apiKey;
+      console.log('[Post-Build] Successfully injected LOVABLE_API_KEY into wrangler.json vars');
+    } else {
+      console.warn('[Post-Build] LOVABLE_API_KEY not found in environment or .env');
+    }
     
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
   } else {

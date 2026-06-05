@@ -24,6 +24,8 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          LOVABLE_API_KEY: ${{ secrets.LOVABLE_API_KEY }}
 
       - name: Deploy to Cloudflare Workers
         run: npx --yes wrangler deploy --config dist/server/wrangler.json
