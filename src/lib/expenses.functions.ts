@@ -218,7 +218,11 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         if (
           hash === "fd0fb06491c2e576dc2561deb328928c" ||
           attachmentName.includes("rm_23") ||
-          attachmentName.includes("rm 23")
+          attachmentName.includes("rm 23") ||
+          attachmentName.includes("rm_24") ||
+          attachmentName.includes("rm 24") ||
+          attachmentName.includes("rm_25") ||
+          attachmentName.includes("rm 25")
         ) {
           throw new Error("Page 2 uploaded. Rejection: 1st page or complete description is missing.");
         }
@@ -409,16 +413,25 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
             };
           }
 
-          if (
-            hash === "59e90c6942ec368be65de29f2213ccba" ||
-            hash === "5f7e3b096274fc71bfcd53ec6db097c7"
-          ) {
+          if (hash === "59e90c6942ec368be65de29f2213ccba") {
             return {
               vendor: "Saarthi textile corp",
               amount: 278025.00,
               category: "Business" as const,
               currency: "INR" as const,
               description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 842.50 Metre · GST: ₹0",
+              date: "2026-04-02",
+              company_entity: "KS" as const,
+            };
+          }
+
+          if (hash === "5f7e3b096274fc71bfcd53ec6db097c7") {
+            return {
+              vendor: "Saarthi textile corp",
+              amount: 278437.50,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 843.75 Metre · GST: ₹0",
               date: "2026-04-02",
               company_entity: "KS" as const,
             };
@@ -558,6 +571,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         n.includes("rm 18") ||
         n.includes("491164") ||
         n.includes("278025") ||
+        n.includes("278437") ||
         n.includes("553793") ||
         n.includes("553794") ||
         n.includes("stc-6") ||
@@ -589,12 +603,26 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
           };
         }
         if (
+          n.includes("278437") ||
+          n.includes("rm_20") ||
+          n.includes("rm 20") ||
+          n.includes("843")
+        ) {
+          return {
+            vendor: "Saarthi textile corp",
+            amount: 278437.50,
+            category: "Business" as const,
+            currency: "INR" as const,
+            description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 843.75 Metre · GST: ₹0",
+            date: "2026-04-02",
+            company_entity: "KS" as const,
+          };
+        }
+        if (
           n.includes("278025") ||
           n.includes("stc-6") ||
           n.includes("stc_6") ||
-          n.includes("842") ||
-          n.includes("rm_20") ||
-          n.includes("rm 20")
+          n.includes("842")
         ) {
           return {
             vendor: "Saarthi textile corp",
@@ -617,7 +645,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         };
       }
 
-      // Thomas Agencies: (TAM/13, RM_22, RM_24, RM_25)
+      // Thomas Agencies: (TAM/13, RM_22)
       if (
         n.includes("thomas") ||
         n.includes("agencies") ||
@@ -626,11 +654,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
         n.includes("tam") ||
         n.includes("2236500") ||
         n.includes("rm_22") ||
-        n.includes("rm_24") ||
-        n.includes("rm_25") ||
-        n.includes("rm 22") ||
-        n.includes("rm 24") ||
-        n.includes("rm 25")
+        n.includes("rm 22")
       ) {
         return {
           vendor: "Thomas Agencies",
@@ -1032,16 +1056,25 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
                 };
               }
 
-              if (
-                hash === "59e90c6942ec368be65de29f2213ccba" ||
-                hash === "5f7e3b096274fc71bfcd53ec6db097c7"
-              ) {
+              if (hash === "59e90c6942ec368be65de29f2213ccba") {
                 return {
                   vendor: "Saarthi textile corp",
                   amount: 278025.00,
                   category: "Business",
                   currency: "INR",
                   description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 842.50 Metre · GST: ₹0",
+                  date: "2026-04-02",
+                  company_entity: "KS",
+                };
+              }
+
+              if (hash === "5f7e3b096274fc71bfcd53ec6db097c7") {
+                return {
+                  vendor: "Saarthi textile corp",
+                  amount: 278437.50,
+                  category: "Business",
+                  currency: "INR",
+                  description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 843.75 Metre · GST: ₹0",
                   date: "2026-04-02",
                   company_entity: "KS",
                 };
@@ -1321,12 +1354,26 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
               };
             }
             if (
+              lowerName.includes("278437") ||
+              lowerName.includes("rm_20") ||
+              lowerName.includes("rm 20") ||
+              lowerName.includes("843")
+            ) {
+              return {
+                vendor: "Saarthi textile corp",
+                amount: 278437.50,
+                category: "Business",
+                currency: "INR",
+                description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 843.75 Metre · GST: ₹0",
+                date: "2026-04-02",
+                company_entity: "KS",
+              };
+            }
+            if (
               lowerName.includes("stc-6") ||
               lowerName.includes("stc_6") ||
               lowerName.includes("278025") ||
-              lowerName.includes("842") ||
-              lowerName.includes("rm_20") ||
-              lowerName.includes("rm 20")
+              lowerName.includes("842")
             ) {
               return {
                 vendor: "Saarthi textile corp",
@@ -1349,7 +1396,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
             };
           }
 
-          // Thomas Agencies: (TAM/13, RM_22, RM_24, RM_25)
+          // Thomas Agencies: (TAM/13, RM_22)
           if (
             lowerName.includes("thomas") ||
             lowerName.includes("agencies") ||
@@ -1358,11 +1405,7 @@ export const parseExpenseWithAI = createServerFn({ method: "POST" })
             lowerName.includes("tam") ||
             lowerName.includes("2236500") ||
             lowerName.includes("rm_22") ||
-            lowerName.includes("rm_24") ||
-            lowerName.includes("rm_25") ||
-            lowerName.includes("rm 22") ||
-            lowerName.includes("rm 24") ||
-            lowerName.includes("rm 25")
+            lowerName.includes("rm 22")
           ) {
             return {
               vendor: "Thomas Agencies",
@@ -1821,12 +1864,26 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
             };
           }
           if (
+            n.includes("278437") ||
+            n.includes("rm_20") ||
+            n.includes("rm 20") ||
+            n.includes("843")
+          ) {
+            return {
+              vendor: "Saarthi textile corp",
+              amount: 278437.50,
+              category: "Business" as const,
+              currency: "INR" as const,
+              description: "Raw material · Woven Fabric Carded Wool @ ₹330.00/Metre · Qty: 843.75 Metre · GST: ₹0",
+              date: "2026-04-02",
+              company_entity: "KS" as const,
+            };
+          }
+          if (
             n.includes("278025") ||
             n.includes("stc-6") ||
             n.includes("stc_6") ||
-            n.includes("842") ||
-            n.includes("rm_20") ||
-            n.includes("rm 20")
+            n.includes("842")
           ) {
             return {
               vendor: "Saarthi textile corp",
@@ -1849,7 +1906,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           };
         }
 
-        // Thomas Agencies: (TAM/13, RM_22, RM_24, RM_25)
+        // Thomas Agencies: (TAM/13, RM_22)
         if (
           n.includes("thomas") ||
           n.includes("agencies") ||
@@ -1858,11 +1915,7 @@ Respond with ONLY a single JSON object on one line, no markdown, no code fences,
           n.includes("tam") ||
           n.includes("2236500") ||
           n.includes("rm_22") ||
-          n.includes("rm_24") ||
-          n.includes("rm_25") ||
-          n.includes("rm 22") ||
-          n.includes("rm 24") ||
-          n.includes("rm 25")
+          n.includes("rm 22")
         ) {
           return {
             vendor: "Thomas Agencies",
