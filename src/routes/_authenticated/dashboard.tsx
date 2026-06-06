@@ -50,7 +50,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory, matchBuyerToEntity } from "@/lib/utils";
 
 async function mergeDebitOrCreditNote(
   supabaseClient: any,
@@ -627,23 +627,79 @@ function Dashboard() {
         const linkedBusiness = businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
 
         let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
-        if (parsed.company_entity && parsed.company_entity !== "None") {
-          entityName = parsed.company_entity;
-        } else if (parsed.category === "Business" && linkedBusiness) {
-          const biz = businesses.find((b) => b.id === linkedBusiness);
-          if (biz) {
-            const bname = biz.name.toUpperCase();
-            if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
-              entityName = bname as any;
+        let finalRawText = "";
+        let expenseCategory = "Other expenses";
+
+        const hasGstItems = (parsed as any).items && (parsed as any).items.length > 0;
+
+        if (hasGstItems) {
+          const items = (parsed as any).items as any[];
+          const materialDetails = items.map((it: any) => it.description).filter(Boolean).join(", ");
+          
+          // Auto-classify cost category based on items description
+          const classified = parseExpenseCategoryAndDescription(materialDetails);
+          expenseCategory = classified.expenseCategory;
+          
+          const firstItem = items[0];
+          const rateVal = firstItem?.rate ?? 0;
+          const unitVal = firstItem?.unit || 'unit';
+          const qtyVal = firstItem?.quantity ?? 0;
+          const gstVal = (parsed as any).total_gst_amount ?? 0;
+          
+          const rateText = rateVal % 1 === 0 ? rateVal.toString() : rateVal.toFixed(2);
+          const qtyText = qtyVal % 1 === 0 ? qtyVal.toString() : qtyVal.toFixed(3);
+          const gstText = gstVal.toLocaleString('en-IN');
+          
+          finalRawText = `${expenseCategory} · ${materialDetails} @ ₹${rateText}/${unitVal} · Qty: ${qtyText} ${unitVal} · GST: ₹${gstText}`;
+          if (parsed.invoice_number) {
+            finalRawText += ` · Inv: ${parsed.invoice_number}`;
+          }
+          
+          entityName = matchBuyerToEntity((parsed as any).buyer_name, businesses) as any;
+        } else {
+          if (parsed.company_entity && parsed.company_entity !== "None") {
+            entityName = parsed.company_entity;
+          } else if (parsed.category === "Business" && linkedBusiness) {
+            const biz = businesses.find((b) => b.id === linkedBusiness);
+            if (biz) {
+              const bname = biz.name.toUpperCase();
+              if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
+                entityName = bname as any;
+              }
             }
           }
+          const classified = parseExpenseCategoryAndDescription(parsed.description);
+          expenseCategory = classified.expenseCategory;
+          finalRawText = parsed.description || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory);
         }
 
-        const mainCategoryVal = parsed.category === "Business" ? "Business" : "Personal";
-        const { expenseCategory } = parseExpenseCategoryAndDescription(parsed.description);
+        const mainCategoryVal = hasGstItems ? "Business" : (parsed.category === "Business" ? "Business" : "Personal");
 
         const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
         const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+
+        // ── Duplicate check by invoice_number ─────────────────────────────
+        if (parsed.invoice_number) {
+          const dup = expenses.find(e => {
+            if (!e.raw_text) return false;
+            const invMatch = /Inv:\s*([^\s·•\n]+)/i.exec(e.raw_text);
+            if (invMatch) {
+              return invMatch[1].toLowerCase() === parsed.invoice_number.toLowerCase();
+            }
+            return false;
+          });
+
+          if (dup) {
+            const formattedAmount = dup.amount % 1 === 0 ? dup.amount.toLocaleString('en-IN') : dup.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const proceed = window.confirm(
+              `Duplicate detected — Invoice ${parsed.invoice_number} from ${dup.vendor} for ₹${formattedAmount} already exists. Add anyway or discard?`
+            );
+            if (!proceed) {
+              failCount++;
+              continue;
+            }
+          }
+        }
 
         // ── Debit Note / Credit Note handling: merge with linked invoice ──────────
         if (parsed.debit_note_target || /debit|credit|rate difference/i.test(parsed.description || "")) {
@@ -655,7 +711,7 @@ function Dashboard() {
         }
 
         // ── Multi-item invoice: insert each line item as a separate row ───
-        if (parsed.line_items && parsed.line_items.length > 0) {
+        if (!hasGstItems && parsed.line_items && parsed.line_items.length > 0) {
           for (const item of parsed.line_items) {
             const itemExpCat = (item.description || "").toLowerCase().includes("raw material") ? "Raw material" : expenseCategory;
             let inserted: any = null;
@@ -763,9 +819,9 @@ function Dashboard() {
             .insert({
               amount: parsed.amount,
               vendor: parsed.vendor,
-              category: parsed.category,
+              category: hasGstItems ? "Business" : parsed.category,
               currency: detectedCurrency,
-              raw_text: parsed.description || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory),
+              raw_text: finalRawText,
               user_id: user.id,
               business_id: linkedBusiness,
               created_at: new Date().toISOString(),
@@ -790,9 +846,9 @@ function Dashboard() {
               .insert({
                 amount: parsed.amount,
                 vendor: parsed.vendor,
-                category: parsed.category,
+                category: hasGstItems ? "Business" : parsed.category,
                 currency: detectedCurrency,
-                raw_text: parsed.description || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory),
+                raw_text: finalRawText,
                 user_id: user.id,
                 business_id: linkedBusiness,
                 created_at: new Date().toISOString(),
@@ -817,9 +873,9 @@ function Dashboard() {
               .insert({
                 amount: parsed.amount,
                 vendor: parsed.vendor,
-                category: parsed.category,
+                category: hasGstItems ? "Business" : parsed.category,
                 currency: detectedCurrency,
-                raw_text: parsed.description || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory),
+                raw_text: finalRawText,
                 user_id: user.id,
                 business_id: linkedBusiness,
                 created_at: new Date().toISOString(),
@@ -1017,39 +1073,89 @@ function Dashboard() {
         businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
 
       let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
-      
-      // Respect manual business dropdown selection and bill-detected business entities
-      const isBiz = parsed.category === "Business" || 
-                    !!linkedBusiness || 
-                    (parsed.company_entity && parsed.company_entity !== "None");
+      let finalRawText = "";
+      let expenseCategory = "Other expenses";
 
-      // Prefer the entity detected from the bill itself (e.g. RM invoices → KS)
-      if (parsed.company_entity && parsed.company_entity !== "None") {
-        entityName = parsed.company_entity;
-      } else if (isBiz && linkedBusiness) {
-        const biz = businesses.find((b) => b.id === linkedBusiness);
-        if (biz) {
-          const bname = biz.name.toUpperCase();
-          if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
-            entityName = bname as any;
+      const hasGstItems = (parsed as any).items && (parsed as any).items.length > 0;
+
+      if (hasGstItems) {
+        const items = (parsed as any).items as any[];
+        const materialDetails = items.map((it: any) => it.description).filter(Boolean).join(", ");
+        
+        // Auto-classify cost category based on items description
+        const classified = parseExpenseCategoryAndDescription(materialDetails);
+        expenseCategory = classified.expenseCategory;
+        
+        const firstItem = items[0];
+        const rateVal = firstItem?.rate ?? 0;
+        const unitVal = firstItem?.unit || 'unit';
+        const qtyVal = firstItem?.quantity ?? 0;
+        const gstVal = (parsed as any).total_gst_amount ?? 0;
+        
+        const rateText = rateVal % 1 === 0 ? rateVal.toString() : rateVal.toFixed(2);
+        const qtyText = qtyVal % 1 === 0 ? qtyVal.toString() : qtyVal.toFixed(3);
+        const gstText = gstVal.toLocaleString('en-IN');
+        
+        finalRawText = `${expenseCategory} · ${materialDetails} @ ₹${rateText}/${unitVal} · Qty: ${qtyText} ${unitVal} · GST: ₹${gstText}`;
+        if (parsed.invoice_number) {
+          finalRawText += ` · Inv: ${parsed.invoice_number}`;
+        }
+        
+        entityName = matchBuyerToEntity((parsed as any).buyer_name, businesses) as any;
+      } else {
+        const isBiz = parsed.category === "Business" || 
+                      !!linkedBusiness || 
+                      (parsed.company_entity && parsed.company_entity !== "None");
+
+        if (parsed.company_entity && parsed.company_entity !== "None") {
+          entityName = parsed.company_entity;
+        } else if (isBiz && linkedBusiness) {
+          const biz = businesses.find((b) => b.id === linkedBusiness);
+          if (biz) {
+            const bname = biz.name.toUpperCase();
+            if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
+              entityName = bname as any;
+            }
+          }
+        }
+        
+        const cleanDescVal = cleanDescription(parsed.description || rawText, String(parsed.amount));
+        const classified = parseExpenseCategoryAndDescription(cleanDescVal || rawText || parsed.description);
+        expenseCategory = classified.expenseCategory;
+        
+        finalRawText = cleanDescVal 
+          ? `${expenseCategory} · ${cleanDescVal}` 
+          : (parsed.description || rawText || 
+             (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory));
+      }
+
+      const mainCategoryVal = hasGstItems ? "Business" : (parsed.category === "Business" ? "Business" : "Personal");
+
+      const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
+      const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+
+      // ── Duplicate check by invoice_number ─────────────────────────────
+      if (parsed.invoice_number) {
+        const dup = expenses.find(e => {
+          if (!e.raw_text) return false;
+          const invMatch = /Inv:\s*([^\s·•\n]+)/i.exec(e.raw_text);
+          if (invMatch) {
+            return invMatch[1].toLowerCase() === parsed.invoice_number.toLowerCase();
+          }
+          return false;
+        });
+
+        if (dup) {
+          const formattedAmount = dup.amount % 1 === 0 ? dup.amount.toLocaleString('en-IN') : dup.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const proceed = window.confirm(
+            `Duplicate detected — Invoice ${parsed.invoice_number} from ${dup.vendor} for ₹${formattedAmount} already exists. Add anyway or discard?`
+          );
+          if (!proceed) {
+            setProcessing(false);
+            return;
           }
         }
       }
-
-      const mainCategoryVal = isBiz ? "Business" : "Personal";
-      
-      // Clean and construct description from note or voice transcription
-      const cleanDesc = cleanDescription(parsed.description || rawText, String(parsed.amount));
-      const { expenseCategory } = parseExpenseCategoryAndDescription(cleanDesc || rawText || parsed.description);
-      // Build a meaningful description — never fall back to meaningless image/PDF filenames
-      const finalRawText = cleanDesc 
-        ? `${expenseCategory} · ${cleanDesc}` 
-        : (parsed.description || rawText || 
-           (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory));
-
-      // Use the invoice date from the parsed bill if available; otherwise use the user-selected date
-      const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
-      const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
       // ── Debit Note / Credit Note handling: merge with linked invoice ──────────
       if (parsed.debit_note_target || /debit|credit|rate difference/i.test(parsed.description || "")) {
@@ -1063,7 +1169,7 @@ function Dashboard() {
       }
 
       // ── Multi-item invoice: insert each line item as a separate row ───
-      if (parsed.line_items && parsed.line_items.length > 0) {
+      if (!hasGstItems && parsed.line_items && parsed.line_items.length > 0) {
         for (const item of parsed.line_items) {
           const itemExpCat = (item.description || "").toLowerCase().includes("raw material") ? "Raw material" : expenseCategory;
           let inserted: any = null;
@@ -1177,10 +1283,9 @@ function Dashboard() {
           .insert({
             amount: parsed.amount,
             vendor: parsed.vendor,
-            category: parsed.category,
+            category: hasGstItems ? "Business" : parsed.category,
             currency: detectedCurrency,
-            raw_text:
-              finalRawText || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory),
+            raw_text: finalRawText,
             user_id: user.id,
             business_id: linkedBusiness,
             created_at: new Date().toISOString(),
@@ -1205,10 +1310,9 @@ function Dashboard() {
             .insert({
               amount: parsed.amount,
               vendor: parsed.vendor,
-              category: parsed.category,
+              category: hasGstItems ? "Business" : parsed.category,
               currency: detectedCurrency,
-              raw_text:
-                finalRawText || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory),
+              raw_text: finalRawText,
               user_id: user.id,
               business_id: linkedBusiness,
               created_at: new Date().toISOString(),
@@ -1233,10 +1337,9 @@ function Dashboard() {
             .insert({
               amount: parsed.amount,
               vendor: parsed.vendor,
-              category: parsed.category,
+              category: hasGstItems ? "Business" : parsed.category,
               currency: detectedCurrency,
-              raw_text:
-                finalRawText || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory),
+              raw_text: finalRawText,
               user_id: user.id,
               business_id: linkedBusiness,
               created_at: new Date().toISOString(),
