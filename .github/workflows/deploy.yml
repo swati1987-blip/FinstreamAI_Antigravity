@@ -26,6 +26,8 @@ jobs:
         run: npm run build
         env:
           LOVABLE_API_KEY: ${{ secrets.LOVABLE_API_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
       - name: Deploy to Cloudflare Workers
         run: npx --yes wrangler deploy --config dist/server/wrangler.json
