@@ -1431,15 +1431,50 @@ function Dashboard() {
         // 2. Convert to clean base64
         const base64String = await fileToBase64(resizedFile);
         
-        // 3. Send POST request to n8n webhook via proxy server function (bypassing browser CORS)
-        const n8nResult = await sendImageToN8nFn({
-          data: { 
-            imageBase64: base64String,
-            fileName: selectedFile.name
+        // 3. Send POST request to n8n webhook
+        let extractedText = "";
+        const configuredUrl = await getWebhookUrlFn();
+
+        if (configuredUrl.includes("localhost") || configuredUrl.includes("127.0.0.1")) {
+          // Attempt client-side direct request to bypass Cloudflare Worker loopback block
+          console.log("[Client Direct] Webhook URL is local. Attempting direct browser request to:", configuredUrl);
+          try {
+            const res = await fetch(configuredUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageBase64: base64String }),
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              if (Array.isArray(resData)) {
+                extractedText = resData[0]?.extractedText || JSON.stringify(resData);
+              } else {
+                extractedText = resData.extractedText || JSON.stringify(resData);
+              }
+            } else {
+              throw new Error(`Local fetch status ${res.status}`);
+            }
+          } catch (localErr) {
+            console.warn("[Client Direct] Direct fetch to local n8n failed or was blocked by CORS. Falling back to proxy...", localErr);
+            const n8nResult = await sendImageToN8nFn({
+              data: { 
+                imageBase64: base64String,
+                fileName: selectedFile.name
+              }
+            });
+            extractedText = n8nResult.extractedText;
           }
-        });
-        
-        const extractedText = n8nResult.extractedText;
+        } else {
+          // Send request via server proxy function (for remote URL to bypass browser CORS)
+          const n8nResult = await sendImageToN8nFn({
+            data: { 
+              imageBase64: base64String,
+              fileName: selectedFile.name
+            }
+          });
+          extractedText = n8nResult.extractedText;
+        }
+
         if (!extractedText) {
           throw new Error("No extractedText returned from n8n webhook");
         }
