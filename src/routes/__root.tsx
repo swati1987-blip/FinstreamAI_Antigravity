@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  ScrollRestoration,
 } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
@@ -135,6 +136,7 @@ function RootComponent() {
         <ThemeProvider>
           <CurrencyProvider>
             <CustomCursor />
+            <ScrollRestoration />
             <Outlet />
             <MobileNav />
             <Toaster />
