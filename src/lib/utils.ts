@@ -51,16 +51,35 @@ export function cleanVendorName(vendor: string | null | undefined): string {
   name = name.replace(categoriesPattern, "").trim();
 
   // 4. Strip common vendor suffixes (e.g. pay, utilities, retail, limited, ltd, pvt, solutions, industries, corp) at the end of the vendor name
-  const suffixesPattern = /\b(?:pay|utilities|retail|limited|ltd|pvt|solutions|industries|corp)\b\.?/i;
+  const suffixesPattern = /\b(?:pay|utilities|retail|limited|ltd|pvt|solutions|industries|corp|llp|co|company|enterprises|enterprise|associates|traders|trading|services|group|chemical|chemicals|chemicles|chem|agency|agencies|subsidiary|subsidiaries|corporation|packers|packaging|textile|textiles|private|govt|government)\b\.?/gi;
   name = name.replace(suffixesPattern, "").trim();
 
-  // Clean up any trailing punctuation
-  name = name.replace(/[-:·•/]+$/, "").trim();
+  // Clean up any trailing punctuation or stray conjunctions at the end
+  name = name.replace(/[-:·•/&\s]+$/, "").trim();
+  name = name.replace(/\b(?:and|&)\b$/i, "").trim();
 
   const finalName = name || vendor;
   if (!finalName) return "—";
   return finalName.charAt(0).toUpperCase() + finalName.slice(1).toLowerCase();
 }
+
+export function isFuzzyVendorMatch(vendor1: string | null | undefined, vendor2: string | null | undefined): boolean {
+  if (!vendor1 || !vendor2) return false;
+  const v1 = cleanVendorName(vendor1).toLowerCase().trim();
+  const v2 = cleanVendorName(vendor2).toLowerCase().trim();
+  if (v1 === v2) return true;
+  if (v1.includes(v2) || v2.includes(v1)) return true;
+
+  // Split into words and filter out short words
+  const words1 = v1.split(/\s+/).filter((w) => w.length >= 4);
+  const words2 = v2.split(/\s+/).filter((w) => w.length >= 4);
+
+  if (words1.length > 0 && words2.length > 0) {
+    return words1.some((w) => words2.includes(w));
+  }
+  return false;
+}
+
 
 export function parseExpenseCategoryAndDescription(rawText: string | null | undefined): {
   expenseCategory: string;
@@ -137,7 +156,7 @@ export function parseExpenseCategoryAndDescription(rawText: string | null | unde
   if (lowerText.includes("carriage") || lowerText.includes("transport") || lowerText.includes("freight") || lowerText.includes("cargo")) {
     return { expenseCategory: "Goods Carriage & Transport", description: text };
   }
-  if (lowerText.includes("raw material") || lowerText.includes("chemicals") || lowerText.includes("felt") || lowerText.includes("fabric") || lowerText.includes("box") || lowerText.includes("carton")) {
+  if (lowerText.includes("raw material") || lowerText.includes("chemical") || lowerText.includes("chemicle") || lowerText.includes("chem") || lowerText.includes("felt") || lowerText.includes("fabric") || lowerText.includes("box") || lowerText.includes("carton")) {
     return { expenseCategory: "Raw Material", description: text };
   }
   if (lowerText.includes("travel") || lowerText.includes("cab") || lowerText.includes("auto") || lowerText.includes("metro") || lowerText.includes("commute")) {

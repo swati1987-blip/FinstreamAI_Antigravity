@@ -50,7 +50,7 @@ import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory, matchBuyerToEntity, fileToBase64, resizeImageIfNeeded } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory, matchBuyerToEntity, fileToBase64, resizeImageIfNeeded, isFuzzyVendorMatch } from "@/lib/utils";
 
 async function mergeDebitOrCreditNote(
   supabaseClient: any,
@@ -429,7 +429,7 @@ function matchTransactionRules(
   if (!groupRules || groupRules.length === 0) {
     const matchedPreciseKey = Array.from(groupRulesMap.keys()).find((k) => {
       const [vKey, amtVal] = k.split("|");
-      return Math.abs(Number(amtVal) - incomingAmt) < 0.01 && (vendorKey.includes(vKey) || vKey.includes(vendorKey));
+      return Math.abs(Number(amtVal) - incomingAmt) < 0.01 && isFuzzyVendorMatch(vendorKey, vKey);
     });
     if (matchedPreciseKey) {
       groupRules = groupRulesMap.get(matchedPreciseKey);
@@ -454,7 +454,7 @@ function matchTransactionRules(
   let allVendorRules = vendorAmountRules.get(vendorKey) ?? [];
   if (allVendorRules.length === 0) {
     const matchedVendorKey = Array.from(vendorAmountRules.keys()).find(
-      (key) => vendorKey.includes(key) || key.includes(vendorKey)
+      (key) => isFuzzyVendorMatch(vendorKey, key)
     );
     if (matchedVendorKey) {
       allVendorRules = vendorAmountRules.get(matchedVendorKey) ?? [];
@@ -477,7 +477,7 @@ function matchTransactionRules(
   let vendorRule = vendorRulesMap.get(vendorKey);
   if (!vendorRule) {
     const matchedVendorKey = Array.from(vendorRulesMap.keys()).find(
-      (key) => vendorKey.includes(key) || key.includes(vendorKey)
+      (key) => isFuzzyVendorMatch(vendorKey, key)
     );
     if (matchedVendorKey) {
       vendorRule = vendorRulesMap.get(matchedVendorKey);
@@ -545,26 +545,26 @@ function findDuplicateInHistory(
 
   // 1. Try exact match (same vendor, same amount, same date)
   let matched = existingExpenses.find((e) => {
-    const eVendor = cleanVendorName(e.vendor).toLowerCase().trim();
+    const eVendor = e.vendor;
     const eDate = e.date || (e.created_at ? e.created_at.split('T')[0] : '');
-    return eVendor === cleanNewVendor && Math.abs(Number(e.amount) - newAmt) < 0.01 && eDate === dateStr;
+    return isFuzzyVendorMatch(vendor, eVendor) && Math.abs(Number(e.amount) - newAmt) < 0.01 && eDate === dateStr;
   });
 
   // 2. Try ±1 day fuzzy date fallback
   if (!matched) {
     matched = existingExpenses.find((e) => {
-      const eVendor = cleanVendorName(e.vendor).toLowerCase().trim();
+      const eVendor = e.vendor;
       const eDate = e.date || (e.created_at ? e.created_at.split('T')[0] : '');
-      return eVendor === cleanNewVendor && Math.abs(Number(e.amount) - newAmt) < 0.01 && isWithinOneDay(eDate, dateStr);
+      return isFuzzyVendorMatch(vendor, eVendor) && Math.abs(Number(e.amount) - newAmt) < 0.01 && isWithinOneDay(eDate, dateStr);
     });
   }
 
   // 3. Try ±1 day fuzzy date + vendor substring match fallback
   if (!matched) {
     matched = existingExpenses.find((e) => {
-      const eVendor = cleanVendorName(e.vendor).toLowerCase().trim();
+      const eVendor = e.vendor;
       const eDate = e.date || (e.created_at ? e.created_at.split('T')[0] : '');
-      return (cleanNewVendor.includes(eVendor) || eVendor.includes(cleanNewVendor)) && 
+      return isFuzzyVendorMatch(vendor, eVendor) && 
              Math.abs(Number(e.amount) - newAmt) < 0.01 && 
              isWithinOneDay(eDate, dateStr);
     });

@@ -3,7 +3,7 @@ import { UploadCloud, Loader2, FileText, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { cn, cleanVendorName, resolveEntityFromVendor } from "@/lib/utils";
+import { cn, cleanVendorName, resolveEntityFromVendor, isFuzzyVendorMatch } from "@/lib/utils";
 
 const WEBHOOK_URL =
   "https://hook.eu1.make.com/gluqiwaidwi3telj1tjdl3byreiguxc9";
@@ -426,6 +426,12 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
             groupRulesMap.get(preciseKey)!.push(rule);
             if (!vendorAmountRules.has(vendorKey)) vendorAmountRules.set(vendorKey, []);
             vendorAmountRules.get(vendorKey)!.push(rule);
+
+            // Also add to vendorRulesMap as fallback if there is no explicit amount-less rule
+            const existing = vendorRulesMap.get(vendorKey);
+            if (!existing || existing.amount != null) {
+              vendorRulesMap.set(vendorKey, rule);
+            }
           } else {
             // Vendor-only rule — always overwrite with latest
             vendorRulesMap.set(vendorKey, rule);
@@ -521,7 +527,7 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
             // Fuzzy/substring vendor name fallback for Tier 1 matching
             const matchedPreciseKey = Array.from(groupRulesMap.keys()).find((k) => {
               const [vKey, amtVal] = k.split("|");
-              return Math.abs(Number(amtVal) - incomingAmt) < 0.01 && (vendorKey.includes(vKey) || vKey.includes(vendorKey));
+              return Math.abs(Number(amtVal) - incomingAmt) < 0.01 && isFuzzyVendorMatch(vendorKey, vKey);
             });
             if (matchedPreciseKey) {
               groupRules = groupRulesMap.get(matchedPreciseKey);
@@ -556,7 +562,7 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
           if (allVendorRules.length === 0) {
             // Fuzzy/substring vendor name fallback for Tier 2 matching
             const matchedVendorKey = Array.from(vendorAmountRules.keys()).find(
-              (key) => vendorKey.includes(key) || key.includes(vendorKey)
+              (key) => isFuzzyVendorMatch(vendorKey, key)
             );
             if (matchedVendorKey) {
               allVendorRules = vendorAmountRules.get(matchedVendorKey) ?? [];
@@ -589,7 +595,7 @@ export function MasterUpload({ onAuditingChange, onSuccess }: MasterUploadProps)
           if (!vendorRule) {
             // Fuzzy/substring vendor name fallback for Tier 3 matching
             const matchedVendorKey = Array.from(vendorRulesMap.keys()).find(
-              (key) => vendorKey.includes(key) || key.includes(vendorKey)
+              (key) => isFuzzyVendorMatch(vendorKey, key)
             );
             if (matchedVendorKey) {
               vendorRule = vendorRulesMap.get(matchedVendorKey);
