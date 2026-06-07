@@ -606,6 +606,72 @@ export function matchBuyerToEntity(buyerName: string | null | undefined, busines
   return "None";
 }
 
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] || "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+export function resizeImageIfNeeded(file: File): Promise<File> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !file.type.startsWith("image/")) {
+      resolve(file);
+      return;
+    }
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(img.src);
+      const longEdge = Math.max(img.width, img.height);
+      if (longEdge <= 1500) {
+        resolve(file);
+        return;
+      }
+      
+      let width = img.width;
+      let height = img.height;
+      if (width > height) {
+        height = Math.round((height * 1500) / width);
+        width = 1500;
+      } else {
+        width = Math.round((width * 1500) / height);
+        height = 1500;
+      }
+      
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(file);
+          return;
+        }
+        const resizedFile = new File([blob], file.name, {
+          type: file.type,
+          lastModified: Date.now(),
+        });
+        resolve(resizedFile);
+      }, file.type);
+    };
+    img.onerror = () => {
+      resolve(file);
+    };
+  });
+}
+
 
 
 

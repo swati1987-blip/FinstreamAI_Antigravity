@@ -44,13 +44,13 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
-import { parseExpenseWithAI } from "@/lib/expenses.functions";
+import { parseExpenseWithAI, getCaptureWebhookUrl, sendImageToN8n } from "@/lib/expenses.functions";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrency } from "@/hooks/use-currency";
 import { useBusinesses } from "@/hooks/use-businesses";
 import { CURRENCY_OPTIONS, formatCurrency } from "@/lib/currency";
 import { convertAmount, getRateToINR } from "@/lib/fx";
-import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory, matchBuyerToEntity } from "@/lib/utils";
+import { cn, cleanVendorName, parseExpenseCategoryAndDescription, resolveEntityFromVendor, cleanDescription, normalizeCategory, matchBuyerToEntity, fileToBase64, resizeImageIfNeeded } from "@/lib/utils";
 
 async function mergeDebitOrCreditNote(
   supabaseClient: any,
@@ -298,11 +298,290 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+interface MemoryRule {
+  vendor_pattern: string;
+  main_category: string;
+  company_entity: string;
+  expense_category: string;
+  description?: string | null;
+  amount?: number | null;
+  description_order?: number | null;
+}
+
+async function fetchRulesAndHistory(userId: string) {
+  let rulesData: MemoryRule[] = [];
+  try {
+    const { data: allRules, error: selectAllErr } = await (supabase as any)
+      .from("transaction_rules_memory")
+      .select("*");
+
+    if (selectAllErr) {
+      console.error("[Dashboard] Error fetching transaction rules memory:", selectAllErr);
+    } else if (allRules) {
+      rulesData = allRules
+        .filter((r: any) => {
+          if ("user_id" in r && r.user_id) {
+            return r.user_id === userId;
+          }
+          return true;
+        })
+        .map((r: any) => ({
+          vendor_pattern: r.vendor_pattern || "",
+          main_category: r.main_category || "Personal",
+          company_entity: r.company_entity || "None",
+          expense_category: r.expense_category || "Other expenses",
+          description: r.description || null,
+          amount: r.amount != null ? Number(r.amount) : null,
+          description_order: r.description_order != null ? Number(r.description_order) : null,
+        }));
+      
+      if (allRules.length > 0 && "description_order" in allRules[0]) {
+        rulesData.sort((a, b) => {
+          const orderA = a.description_order ?? 99999;
+          const orderB = b.description_order ?? 99999;
+          return orderA - orderB;
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[Dashboard] Exception loading memory rules:", e);
+  }
+
+  try {
+    const { data: pastExpenses } = await supabase
+      .from("expenses")
+      .select("vendor, category, expense_category, company_entity, amount")
+      .eq("user_id", userId);
+
+    if (pastExpenses) {
+      pastExpenses.forEach((exp) => {
+        if (exp.vendor && exp.expense_category) {
+          rulesData.push({
+            vendor_pattern: exp.vendor,
+            main_category: exp.category || "Personal",
+            company_entity: exp.company_entity || "None",
+            expense_category: exp.expense_category,
+            amount: exp.amount ? Number(exp.amount) : null,
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.error("[Dashboard] Error loading historical expenses for rules engine:", e);
+  }
+
+  const groupRulesMap = new Map<string, MemoryRule[]>();
+  const vendorAmountRules = new Map<string, MemoryRule[]>();
+  const vendorRulesMap = new Map<string, MemoryRule>();
+
+  rulesData.forEach((rule: MemoryRule) => {
+    const cleanedRuleVendor = cleanVendorName(rule.vendor_pattern);
+    const vendorKey = cleanedRuleVendor.toLowerCase().trim();
+    if (rule.amount != null) {
+      const preciseKey = `${vendorKey}|${rule.amount}`;
+      if (!groupRulesMap.has(preciseKey)) groupRulesMap.set(preciseKey, []);
+      groupRulesMap.get(preciseKey)!.push(rule);
+      if (!vendorAmountRules.has(vendorKey)) vendorAmountRules.set(vendorKey, []);
+      vendorAmountRules.get(vendorKey)!.push(rule);
+      
+      // Also add to vendorRulesMap as fallback if there is no explicit amount-less rule
+      const existing = vendorRulesMap.get(vendorKey);
+      if (!existing || existing.amount != null) {
+        vendorRulesMap.set(vendorKey, rule);
+      }
+    } else {
+      // Vendor-only rule — always set and overwrite
+      vendorRulesMap.set(vendorKey, rule);
+    }
+  });
+
+  return {
+    groupRulesMap,
+    vendorAmountRules,
+    vendorRulesMap,
+    groupAssignmentCounters: new Map<string, number>()
+  };
+}
+
+function matchTransactionRules(
+  vendor: string,
+  amount: number,
+  description: string,
+  defaultCategory: "Business" | "Personal",
+  defaultEntity: string,
+  defaultExpenseCategory: string,
+  rulesMaps: {
+    groupRulesMap: Map<string, MemoryRule[]>;
+    vendorAmountRules: Map<string, MemoryRule[]>;
+    vendorRulesMap: Map<string, MemoryRule>;
+    groupAssignmentCounters: Map<string, number>;
+  }
+) {
+  const cleanedVendorStr = cleanVendorName(vendor);
+  const vendorKey = cleanedVendorStr.toLowerCase().trim();
+  const incomingAmt = Number.isFinite(amount) ? amount : 0;
+  const preciseKey = `${vendorKey}|${incomingAmt}`;
+
+  const { groupRulesMap, vendorAmountRules, vendorRulesMap, groupAssignmentCounters } = rulesMaps;
+
+  // ── TIER 1: Exact vendor+amount ──
+  let groupRules = groupRulesMap.get(preciseKey);
+  if (!groupRules || groupRules.length === 0) {
+    const matchedPreciseKey = Array.from(groupRulesMap.keys()).find((k) => {
+      const [vKey, amtVal] = k.split("|");
+      return Math.abs(Number(amtVal) - incomingAmt) < 0.01 && (vendorKey.includes(vKey) || vKey.includes(vendorKey));
+    });
+    if (matchedPreciseKey) {
+      groupRules = groupRulesMap.get(matchedPreciseKey);
+    }
+  }
+
+  if (groupRules && groupRules.length > 0) {
+    const counter = groupAssignmentCounters.get(preciseKey) ?? 0;
+    const assignedRule = groupRules[counter % groupRules.length];
+    groupAssignmentCounters.set(preciseKey, counter + 1);
+
+    const ruleCat = assignedRule.main_category === "Business" ? "Business" : "Personal";
+    return {
+      category: ruleCat as "Business" | "Personal",
+      company_entity: assignedRule.company_entity ?? defaultEntity,
+      expense_category: assignedRule.expense_category ?? defaultExpenseCategory,
+      description: assignedRule.description || description,
+    };
+  }
+
+  // ── TIER 2: Fuzzy vendor+amount match (±₹500 tolerance) ──
+  let allVendorRules = vendorAmountRules.get(vendorKey) ?? [];
+  if (allVendorRules.length === 0) {
+    const matchedVendorKey = Array.from(vendorAmountRules.keys()).find(
+      (key) => vendorKey.includes(key) || key.includes(vendorKey)
+    );
+    if (matchedVendorKey) {
+      allVendorRules = vendorAmountRules.get(matchedVendorKey) ?? [];
+    }
+  }
+  const fuzzyMatch = allVendorRules.find(
+    (rule) => rule.amount != null && Math.abs(rule.amount - incomingAmt) <= 500
+  );
+  if (fuzzyMatch) {
+    const ruleCat = fuzzyMatch.main_category === "Business" ? "Business" : "Personal";
+    return {
+      category: ruleCat as "Business" | "Personal",
+      company_entity: fuzzyMatch.company_entity ?? defaultEntity,
+      expense_category: fuzzyMatch.expense_category ?? defaultExpenseCategory,
+      description: fuzzyMatch.description || description,
+    };
+  }
+
+  // ── TIER 3: Vendor-only fallback ──
+  let vendorRule = vendorRulesMap.get(vendorKey);
+  if (!vendorRule) {
+    const matchedVendorKey = Array.from(vendorRulesMap.keys()).find(
+      (key) => vendorKey.includes(key) || key.includes(vendorKey)
+    );
+    if (matchedVendorKey) {
+      vendorRule = vendorRulesMap.get(matchedVendorKey);
+    }
+  }
+  if (vendorRule) {
+    const ruleCat = vendorRule.main_category === "Business" ? "Business" : "Personal";
+    return {
+      category: ruleCat as "Business" | "Personal",
+      company_entity: vendorRule.company_entity ?? defaultEntity,
+      expense_category: vendorRule.expense_category ?? defaultExpenseCategory,
+      description: description || "",
+    };
+  }
+
+  return {
+    category: defaultCategory,
+    company_entity: defaultEntity,
+    expense_category: defaultExpenseCategory,
+    description,
+  };
+}
+
+function findDuplicateInHistory(
+  vendor: string,
+  amount: number,
+  dateStr: string,
+  existingExpenses: any[]
+) {
+  const cleanNewVendor = cleanVendorName(vendor).toLowerCase().trim();
+  const newAmt = Number(amount);
+
+  const isWithinOneDay = (d1: string, d2: string): boolean => {
+    if (!d1 || !d2) return false;
+    try {
+      const parseDateParts = (str: string) => {
+        const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+          return {
+            year: parseInt(match[1]),
+            month: parseInt(match[2]) - 1,
+            day: parseInt(match[3])
+          };
+        }
+        const d = new Date(str);
+        return {
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          day: d.getDate()
+        };
+      };
+
+      const p1 = parseDateParts(d1);
+      const p2 = parseDateParts(d2);
+
+      const utc1 = Date.UTC(p1.year, p1.month, p1.day);
+      const utc2 = Date.UTC(p2.year, p2.month, p2.day);
+
+      const diffDays = Math.abs(utc1 - utc2) / (24 * 60 * 60 * 1000);
+      return diffDays <= 1;
+    } catch {
+      return false;
+    }
+  };
+
+  // 1. Try exact match (same vendor, same amount, same date)
+  let matched = existingExpenses.find((e) => {
+    const eVendor = cleanVendorName(e.vendor).toLowerCase().trim();
+    const eDate = e.date || (e.created_at ? e.created_at.split('T')[0] : '');
+    return eVendor === cleanNewVendor && Math.abs(Number(e.amount) - newAmt) < 0.01 && eDate === dateStr;
+  });
+
+  // 2. Try ±1 day fuzzy date fallback
+  if (!matched) {
+    matched = existingExpenses.find((e) => {
+      const eVendor = cleanVendorName(e.vendor).toLowerCase().trim();
+      const eDate = e.date || (e.created_at ? e.created_at.split('T')[0] : '');
+      return eVendor === cleanNewVendor && Math.abs(Number(e.amount) - newAmt) < 0.01 && isWithinOneDay(eDate, dateStr);
+    });
+  }
+
+  // 3. Try ±1 day fuzzy date + vendor substring match fallback
+  if (!matched) {
+    matched = existingExpenses.find((e) => {
+      const eVendor = cleanVendorName(e.vendor).toLowerCase().trim();
+      const eDate = e.date || (e.created_at ? e.created_at.split('T')[0] : '');
+      return (cleanNewVendor.includes(eVendor) || eVendor.includes(cleanNewVendor)) && 
+             Math.abs(Number(e.amount) - newAmt) < 0.01 && 
+             isWithinOneDay(eDate, dateStr);
+    });
+  }
+
+  return matched || null;
+}
+
 function Dashboard() {
   const { user } = useAuth();
   const parseFn = useServerFn(parseExpenseWithAI);
+  const getWebhookUrlFn = useServerFn(getCaptureWebhookUrl);
+  const sendImageToN8nFn = useServerFn(sendImageToN8n);
   const { currency: displayCurrency, ratesVersion } = useCurrency();
   const { businesses, addBusiness } = useBusinesses();
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [rawText, setRawText] = useState("");
   const [captureCurrency, setCaptureCurrency] = useState<string>("INR");
@@ -552,11 +831,24 @@ function Dashboard() {
     kind: "image" | "pdf",
   ) => {
     if (!file) return;
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      toast.error("File too large (max 8 MB)");
-      return;
+    if (kind === "image") {
+      const isJpegOrPng = file.type === "image/jpeg" || file.type === "image/png" || file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg") || file.name.toLowerCase().endsWith(".png");
+      if (!isJpegOrPng) {
+        toast.error("Only JPEG/PNG images are supported");
+        return;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        toast.error("Image size must be less than 4MB");
+        return;
+      }
+    } else {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        toast.error("File too large (max 8 MB)");
+        return;
+      }
     }
     try {
+      setSelectedFile(file);
       const dataUrl = await fileToDataUrl(file);
       setAttachment({
         dataUrl,
@@ -594,126 +886,197 @@ function Dashboard() {
     let successCount = 0;
     let failCount = 0;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setBatchProgress({ current: i + 1, total: files.length });
+    try {
+      const rulesMaps = await fetchRulesAndHistory(user.id);
 
-      if (file.size > MAX_ATTACHMENT_BYTES) {
-        toast.error(`"${file.name}" is too large (max 8 MB)`);
-        failCount++;
-        continue;
-      }
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setBatchProgress({ current: i + 1, total: files.length });
 
-      try {
-        const dataUrl = await fileToDataUrl(file);
-        const mimeType = file.type || (kind === "pdf" ? "application/pdf" : "image/*");
-
-        // Parse with Gemini
-        const parsed = await parseFn({
-          data: {
-            rawText: `batch_index: ${i}`,
-            defaultCurrency: captureCurrency,
-            attachment: {
-              dataUrl,
-              mimeType,
-              kind,
-              name: file.name,
-              sizeKb: Math.round(file.size / 1024),
-            },
-          },
-        }) as { vendor: string; amount: number; category: string; currency: string; description?: string; date?: string; company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; line_items?: { vendor: string; amount: number; description?: string }[]; debit_note_target?: string };
-
-        const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
-        const linkedBusiness = businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
-
-        let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
-        let finalRawText = "";
-        let expenseCategory = "Other expenses";
-
-        const hasGstItems = (parsed as any).items && (parsed as any).items.length > 0;
-
-        if (hasGstItems) {
-          const items = (parsed as any).items as any[];
-          const materialDetails = items.map((it: any) => it.description).filter(Boolean).join(", ");
-          
-          // Auto-classify cost category based on items description
-          const classified = parseExpenseCategoryAndDescription(materialDetails);
-          expenseCategory = classified.expenseCategory;
-          
-          const firstItem = items[0];
-          const rateVal = firstItem?.rate ?? 0;
-          const unitVal = firstItem?.unit || 'unit';
-          const qtyVal = firstItem?.quantity ?? 0;
-          const gstVal = (parsed as any).total_gst_amount ?? 0;
-          
-          const rateText = rateVal % 1 === 0 ? rateVal.toString() : rateVal.toFixed(2);
-          const qtyText = qtyVal % 1 === 0 ? qtyVal.toString() : qtyVal.toFixed(3);
-          const gstText = gstVal.toLocaleString('en-IN');
-          
-          finalRawText = `${expenseCategory} · ${materialDetails} @ ₹${rateText}/${unitVal} · Qty: ${qtyText} ${unitVal} · GST: ₹${gstText}`;
-          if (parsed.invoice_number) {
-            finalRawText += ` · Inv: ${parsed.invoice_number}`;
+        if (kind === "image") {
+          const isJpegOrPng = file.type === "image/jpeg" || file.type === "image/png" || file.name.toLowerCase().endsWith(".jpg") || file.name.toLowerCase().endsWith(".jpeg") || file.name.toLowerCase().endsWith(".png");
+          if (!isJpegOrPng) {
+            toast.error(`"${file.name}" is not a JPEG/PNG image and was skipped`);
+            failCount++;
+            continue;
           }
-          
-          entityName = matchBuyerToEntity((parsed as any).buyer_name, businesses) as any;
+          if (file.size > 4 * 1024 * 1024) {
+            toast.error(`"${file.name}" is larger than 4MB and was skipped`);
+            failCount++;
+            continue;
+          }
         } else {
-          if (parsed.company_entity && parsed.company_entity !== "None") {
-            entityName = parsed.company_entity;
-          } else if (parsed.category === "Business" && linkedBusiness) {
-            const biz = businesses.find((b) => b.id === linkedBusiness);
-            if (biz) {
-              const bname = biz.name.toUpperCase();
-              if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
-                entityName = bname as any;
-              }
-            }
+          if (file.size > MAX_ATTACHMENT_BYTES) {
+            toast.error(`"${file.name}" is too large (max 8 MB)`);
+            failCount++;
+            continue;
           }
-          const classified = parseExpenseCategoryAndDescription(parsed.description);
-          expenseCategory = classified.expenseCategory;
-          finalRawText = parsed.description || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory);
         }
 
-        const mainCategoryVal = hasGstItems ? "Business" : (parsed.category === "Business" ? "Business" : "Personal");
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          const mimeType = file.type || (kind === "pdf" ? "application/pdf" : "image/*");
 
-        const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
-        const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+          // Parse with Gemini
+          const parsed = await parseFn({
+            data: {
+              rawText: `batch_index: ${i}`,
+              defaultCurrency: captureCurrency,
+              attachment: {
+                dataUrl,
+                mimeType,
+                kind,
+                name: file.name,
+                sizeKb: Math.round(file.size / 1024),
+              },
+            },
+          }) as { vendor: string; amount: number; category: string; currency: string; description?: string; date?: string; company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; line_items?: { vendor: string; amount: number; description?: string }[]; debit_note_target?: string; invoice_number?: string };
 
-        // ── Duplicate check by invoice_number ─────────────────────────────
-        if (parsed.invoice_number) {
-          const dup = expenses.find(e => {
-            if (!e.raw_text) return false;
-            const invMatch = /Inv:\s*([^\s·•\n]+)/i.exec(e.raw_text);
-            if (invMatch) {
-              return invMatch[1].toLowerCase() === parsed.invoice_number.toLowerCase();
+          const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
+          const linkedBusiness = businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
+
+          let entityName: "KS" | "TI" | "CPM" | "AAS" | "None" = "None";
+          let finalRawText = "";
+          let expenseCategory = "Other expenses";
+
+          const hasGstItems = (parsed as any).items && (parsed as any).items.length > 0;
+
+          if (hasGstItems) {
+            const items = (parsed as any).items as any[];
+            const materialDetails = items.map((it: any) => it.description).filter(Boolean).join(", ");
+            
+            // Auto-classify cost category based on items description
+            const classified = parseExpenseCategoryAndDescription(materialDetails);
+            expenseCategory = classified.expenseCategory;
+            
+            const firstItem = items[0];
+            const rateVal = firstItem?.rate ?? 0;
+            const unitVal = firstItem?.unit || 'unit';
+            const qtyVal = firstItem?.quantity ?? 0;
+            const gstVal = (parsed as any).total_gst_amount ?? 0;
+            
+            const rateText = rateVal % 1 === 0 ? rateVal.toString() : rateVal.toFixed(2);
+            const qtyText = qtyVal % 1 === 0 ? qtyVal.toString() : qtyVal.toFixed(3);
+            const gstText = gstVal.toLocaleString('en-IN');
+            
+            finalRawText = `${expenseCategory} · ${materialDetails} @ ₹${rateText}/${unitVal} · Qty: ${qtyText} ${unitVal} · GST: ₹${gstText}`;
+            if (parsed.invoice_number) {
+              finalRawText += ` · Inv: ${parsed.invoice_number}`;
             }
-            return false;
-          });
+            
+            entityName = matchBuyerToEntity((parsed as any).buyer_name, businesses) as any;
+          } else {
+            if (parsed.company_entity && parsed.company_entity !== "None") {
+              entityName = parsed.company_entity;
+            } else if (parsed.category === "Business" && linkedBusiness) {
+              const biz = businesses.find((b) => b.id === linkedBusiness);
+              if (biz) {
+                const bname = biz.name.toUpperCase();
+                if (["KS", "TI", "CPM", "AAS"].includes(bname)) {
+                  entityName = bname as any;
+                }
+              }
+            }
+            const classified = parseExpenseCategoryAndDescription(parsed.description);
+            expenseCategory = classified.expenseCategory;
+            finalRawText = parsed.description || (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory);
+          }
+
+          let mainCategoryVal = hasGstItems ? "Business" : (parsed.category === "Business" ? "Business" : "Personal");
+          const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
+          const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
+
+          // ── Apply 3-Tier Smart Rules Matching from history before saving ──
+          if (hasGstItems) {
+            const matched = matchTransactionRules(
+              parsed.vendor,
+              parsed.amount,
+              parsed.description || "",
+              mainCategoryVal,
+              entityName,
+              expenseCategory,
+              rulesMaps
+            );
+            mainCategoryVal = matched.category;
+            entityName = matched.company_entity as any;
+            expenseCategory = matched.expense_category;
+          } else {
+            const matched = matchTransactionRules(
+              parsed.vendor,
+              parsed.amount,
+              parsed.description || "",
+              mainCategoryVal,
+              entityName,
+              expenseCategory,
+              rulesMaps
+            );
+            mainCategoryVal = matched.category;
+            entityName = matched.company_entity as any;
+            expenseCategory = matched.expense_category;
+            finalRawText = matched.description
+              ? `${expenseCategory} · ${matched.description}`
+              : (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory);
+          }
+
+          // ── Duplicate Entry Prevention / History Check ──
+          const invoiceNum = parsed.invoice_number;
+          let dup: any = null;
+          if (invoiceNum) {
+            dup = expenses.find(e => {
+              if (!e.raw_text) return false;
+              const invMatch = /Inv:\s*([^\s·•\n]+)/i.exec(e.raw_text);
+              if (invMatch) {
+                return invMatch[1].toLowerCase() === invoiceNum.toLowerCase();
+              }
+              return false;
+            });
+          }
+
+          if (!dup) {
+            dup = findDuplicateInHistory(parsed.vendor, parsed.amount, effectiveDateStr, expenses);
+          }
 
           if (dup) {
             const formattedAmount = dup.amount % 1 === 0 ? dup.amount.toLocaleString('en-IN') : dup.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const dupDate = dup.date || (dup.created_at ? dup.created_at.split('T')[0] : '');
             const proceed = window.confirm(
-              `Duplicate detected — Invoice ${parsed.invoice_number} from ${dup.vendor} for ₹${formattedAmount} already exists. Add anyway or discard?`
+              `Duplicate detected — A transaction from ${dup.vendor} for ₹${formattedAmount} on ${dupDate} already exists. Add anyway or discard?`
             );
             if (!proceed) {
               failCount++;
               continue;
             }
           }
-        }
 
-        // ── Debit Note / Credit Note handling: merge with linked invoice ──────────
-        if (parsed.debit_note_target || /debit|credit|rate difference/i.test(parsed.description || "")) {
-          const applied = await mergeDebitOrCreditNote(supabase, parsed, effectiveDate);
-          if (applied) {
-            successCount++;
-            continue;
+          // ── Debit Note / Credit Note handling: merge with linked invoice ──────────
+          if (parsed.debit_note_target || /debit|credit|rate difference/i.test(parsed.description || "")) {
+            const applied = await mergeDebitOrCreditNote(supabase, parsed, effectiveDate);
+            if (applied) {
+              successCount++;
+              continue;
+            }
           }
-        }
 
         // ── Multi-item invoice: insert each line item as a separate row ───
         if (!hasGstItems && parsed.line_items && parsed.line_items.length > 0) {
           for (const item of parsed.line_items) {
             const itemExpCat = (item.description || "").toLowerCase().includes("raw material") ? "Raw material" : expenseCategory;
+            
+            // Match rules for this line item vendor and amount!
+            const matchedItem = matchTransactionRules(
+              item.vendor || parsed.vendor,
+              item.amount,
+              item.description || parsed.description || "",
+              parsed.category as "Business" | "Personal",
+              entityName,
+              itemExpCat,
+              rulesMaps
+            );
+
+            const finalItemText = matchedItem.description
+              ? `${matchedItem.expense_category} · ${matchedItem.description}`
+              : (item.vendor || parsed.vendor ? `${matchedItem.expense_category} · ${item.vendor || parsed.vendor}` : matchedItem.expense_category);
+
             let inserted: any = null;
             let error: any = null;
 
@@ -723,16 +1086,16 @@ function Dashboard() {
                 .insert({
                   amount: item.amount,
                   vendor: item.vendor || parsed.vendor,
-                  category: parsed.category,
+                  category: matchedItem.category,
                   currency: detectedCurrency,
-                  raw_text: item.description || parsed.description || (parsed.vendor ? `${expenseCategory} · ${item.vendor || parsed.vendor}` : expenseCategory),
+                  raw_text: finalItemText,
                   user_id: user.id,
                   business_id: linkedBusiness,
                   created_at: new Date().toISOString(),
                   date: effectiveDateStr,
-                  main_category: mainCategoryVal,
-                  company_entity: entityName,
-                  expense_category: itemExpCat,
+                  main_category: matchedItem.category,
+                  company_entity: matchedItem.company_entity,
+                  expense_category: matchedItem.expense_category,
                 })
                 .select()
                 .single();
@@ -750,15 +1113,15 @@ function Dashboard() {
                   .insert({
                     amount: item.amount,
                     vendor: item.vendor || parsed.vendor,
-                    category: parsed.category,
+                    category: matchedItem.category,
                     currency: detectedCurrency,
-                    raw_text: item.description || parsed.description || (parsed.vendor ? `${expenseCategory} · ${item.vendor || parsed.vendor}` : expenseCategory),
+                    raw_text: finalItemText,
                     user_id: user.id,
                     business_id: linkedBusiness,
                     created_at: new Date().toISOString(),
                     date: effectiveDateStr,
-                    company_entity: entityName,
-                    expense_category: itemExpCat,
+                    company_entity: matchedItem.company_entity,
+                    expense_category: matchedItem.expense_category,
                   })
                   .select()
                   .single();
@@ -777,9 +1140,9 @@ function Dashboard() {
                   .insert({
                     amount: item.amount,
                     vendor: item.vendor || parsed.vendor,
-                    category: parsed.category,
+                    category: matchedItem.category,
                     currency: detectedCurrency,
-                    raw_text: item.description || parsed.description || (parsed.vendor ? `${expenseCategory} · ${item.vendor || parsed.vendor}` : expenseCategory),
+                    raw_text: finalItemText,
                     user_id: user.id,
                     business_id: linkedBusiness,
                     created_at: new Date().toISOString(),
@@ -915,10 +1278,14 @@ function Dashboard() {
         }
       }
     }
-
-    setProcessing(false);
-    setBatchProgress(null);
-    loadExpenses();
+    } catch (err: any) {
+      console.error("[Dashboard] Batch upload rules/history load error:", err);
+      toast.error("Error loading rules: " + (err.message || err));
+    } finally {
+      setProcessing(false);
+      setBatchProgress(null);
+      loadExpenses();
+    }
 
     if (successCount > 0) {
       toast.success(`Successfully parsed and saved ${successCount} receipt(s)!`);
@@ -1053,21 +1420,54 @@ function Dashboard() {
     }
     setProcessing(true);
     try {
-      const parsed = await parseFn({
-        data: {
-          rawText,
-          defaultCurrency: captureCurrency,
-          attachment: attachment
-            ? {
-                dataUrl: attachment.dataUrl,
-                mimeType: attachment.mimeType,
-                kind: attachment.kind,
-                name: attachment.name,
-                sizeKb: attachment.sizeKb,
-              }
-            : undefined,
-        },
-      }) as { vendor: string; amount: number; category: string; currency: string; description?: string; date?: string; company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; line_items?: { vendor: string; amount: number; description?: string }[]; debit_note_target?: string };
+      const rulesMaps = await fetchRulesAndHistory(user.id);
+
+      let parsed: { vendor: string; amount: number; category: string; currency: string; description?: string; date?: string; company_entity?: "KS" | "TI" | "CPM" | "AAS" | "None"; line_items?: { vendor: string; amount: number; description?: string }[]; debit_note_target?: string; invoice_number?: string };
+      
+      if (attachment && attachment.kind === "image" && selectedFile) {
+        // 1. Resize image if long edge > 1500px
+        const resizedFile = await resizeImageIfNeeded(selectedFile);
+        
+        // 2. Convert to clean base64
+        const base64String = await fileToBase64(resizedFile);
+        
+        // 3. Send POST request to n8n webhook via proxy server function (bypassing browser CORS)
+        const n8nResult = await sendImageToN8nFn({
+          data: { 
+            imageBase64: base64String,
+            fileName: selectedFile.name
+          }
+        });
+        
+        const extractedText = n8nResult.extractedText;
+        if (!extractedText) {
+          throw new Error("No extractedText returned from n8n webhook");
+        }
+        
+        // 4. Send the extractedText string to standard parseExpenseWithAI as raw text
+        parsed = await parseFn({
+          data: {
+            rawText: extractedText,
+            defaultCurrency: captureCurrency,
+          },
+        }) as any;
+      } else {
+        parsed = await parseFn({
+          data: {
+            rawText,
+            defaultCurrency: captureCurrency,
+            attachment: attachment
+              ? {
+                  dataUrl: attachment.dataUrl,
+                  mimeType: attachment.mimeType,
+                  kind: attachment.kind,
+                  name: attachment.name,
+                  sizeKb: attachment.sizeKb,
+                }
+              : undefined,
+          },
+        }) as any;
+      }
       const detectedCurrency = (parsed.currency || captureCurrency).toUpperCase();
       const linkedBusiness =
         businessId !== "none" && businessId !== ADD_NEW_VALUE ? businessId : null;
@@ -1129,31 +1529,69 @@ function Dashboard() {
              (parsed.vendor ? `${expenseCategory} · ${parsed.vendor}` : expenseCategory));
       }
 
-      const mainCategoryVal = hasGstItems ? "Business" : (parsed.category === "Business" ? "Business" : "Personal");
-
+      let mainCategoryVal = hasGstItems ? "Business" : (parsed.category === "Business" ? "Business" : "Personal");
       const effectiveDateStr = parsed.date ?? format(billDate, "yyyy-MM-dd");
       const effectiveDate = parsed.date ? new Date(parsed.date) : billDate;
 
-      // ── Duplicate check by invoice_number ─────────────────────────────
-      if (parsed.invoice_number) {
-        const dup = expenses.find(e => {
+      // ── Apply 3-Tier Smart Rules Matching from history before saving ──
+      if (hasGstItems) {
+        const matched = matchTransactionRules(
+          parsed.vendor,
+          parsed.amount,
+          parsed.description || "",
+          mainCategoryVal,
+          entityName,
+          expenseCategory,
+          rulesMaps
+        );
+        mainCategoryVal = matched.category;
+        entityName = matched.company_entity as any;
+        expenseCategory = matched.expense_category;
+      } else {
+        const matched = matchTransactionRules(
+          parsed.vendor,
+          parsed.amount,
+          parsed.description || "",
+          mainCategoryVal,
+          entityName,
+          expenseCategory,
+          rulesMaps
+        );
+        mainCategoryVal = matched.category;
+        entityName = matched.company_entity as any;
+        expenseCategory = matched.expense_category;
+        finalRawText = matched.description
+          ? `${matched.expense_category} · ${matched.description}`
+          : (parsed.vendor ? `${matched.expense_category} · ${parsed.vendor}` : matched.expense_category);
+      }
+
+      // ── Duplicate Entry Prevention / History Check ──
+      const invoiceNum = parsed.invoice_number;
+      let dup: any = null;
+      if (invoiceNum) {
+        dup = expenses.find(e => {
           if (!e.raw_text) return false;
           const invMatch = /Inv:\s*([^\s·•\n]+)/i.exec(e.raw_text);
           if (invMatch) {
-            return invMatch[1].toLowerCase() === parsed.invoice_number.toLowerCase();
+            return invMatch[1].toLowerCase() === invoiceNum.toLowerCase();
           }
           return false;
         });
+      }
 
-        if (dup) {
-          const formattedAmount = dup.amount % 1 === 0 ? dup.amount.toLocaleString('en-IN') : dup.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          const proceed = window.confirm(
-            `Duplicate detected — Invoice ${parsed.invoice_number} from ${dup.vendor} for ₹${formattedAmount} already exists. Add anyway or discard?`
-          );
-          if (!proceed) {
-            setProcessing(false);
-            return;
-          }
+      if (!dup) {
+        dup = findDuplicateInHistory(parsed.vendor, parsed.amount, effectiveDateStr, expenses);
+      }
+
+      if (dup) {
+        const formattedAmount = dup.amount % 1 === 0 ? dup.amount.toLocaleString('en-IN') : dup.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const dupDate = dup.date || (dup.created_at ? dup.created_at.split('T')[0] : '');
+        const proceed = window.confirm(
+          `Duplicate detected — A transaction from ${dup.vendor} for ₹${formattedAmount} on ${dupDate} already exists. Add anyway or discard?`
+        );
+        if (!proceed) {
+          setProcessing(false);
+          return;
         }
       }
 
@@ -1163,6 +1601,7 @@ function Dashboard() {
         if (applied) {
           setRawText("");
           setAttachment(null);
+          setSelectedFile(null);
           loadExpenses();
           return; // don't create a new standalone entry
         }
@@ -1172,6 +1611,22 @@ function Dashboard() {
       if (!hasGstItems && parsed.line_items && parsed.line_items.length > 0) {
         for (const item of parsed.line_items) {
           const itemExpCat = (item.description || "").toLowerCase().includes("raw material") ? "Raw material" : expenseCategory;
+          
+          // Match rules for this line item vendor and amount!
+          const matchedItem = matchTransactionRules(
+            item.vendor || parsed.vendor,
+            item.amount,
+            item.description || parsed.description || "",
+            parsed.category as "Business" | "Personal",
+            entityName,
+            itemExpCat,
+            rulesMaps
+          );
+
+          const finalItemText = matchedItem.description
+            ? `${matchedItem.expense_category} · ${matchedItem.description}`
+            : (item.vendor || parsed.vendor ? `${matchedItem.expense_category} · ${item.vendor || parsed.vendor}` : matchedItem.expense_category);
+
           let inserted: any = null;
           let error: any = null;
 
@@ -1181,16 +1636,16 @@ function Dashboard() {
               .insert({
                 amount: item.amount,
                 vendor: item.vendor || parsed.vendor,
-                category: parsed.category,
+                category: matchedItem.category,
                 currency: detectedCurrency,
-                raw_text: item.description || parsed.description || (parsed.vendor ? `${expenseCategory} · ${item.vendor || parsed.vendor}` : expenseCategory),
+                raw_text: finalItemText,
                 user_id: user.id,
                 business_id: linkedBusiness,
                 created_at: new Date().toISOString(),
                 date: effectiveDateStr,
-                main_category: mainCategoryVal,
-                company_entity: entityName,
-                expense_category: itemExpCat,
+                main_category: matchedItem.category,
+                company_entity: matchedItem.company_entity,
+                expense_category: matchedItem.expense_category,
               })
               .select()
               .single();
@@ -1208,15 +1663,15 @@ function Dashboard() {
                 .insert({
                   amount: item.amount,
                   vendor: item.vendor || parsed.vendor,
-                  category: parsed.category,
+                  category: matchedItem.category,
                   currency: detectedCurrency,
-                  raw_text: item.description || parsed.description || (parsed.vendor ? `${expenseCategory} · ${item.vendor || parsed.vendor}` : expenseCategory),
+                  raw_text: finalItemText,
                   user_id: user.id,
                   business_id: linkedBusiness,
                   created_at: new Date().toISOString(),
                   date: effectiveDateStr,
-                  company_entity: entityName,
-                  expense_category: itemExpCat,
+                  company_entity: matchedItem.company_entity,
+                  expense_category: matchedItem.expense_category,
                 })
                 .select()
                 .single();
@@ -1235,9 +1690,9 @@ function Dashboard() {
                 .insert({
                   amount: item.amount,
                   vendor: item.vendor || parsed.vendor,
-                  category: parsed.category,
+                  category: matchedItem.category,
                   currency: detectedCurrency,
-                  raw_text: item.description || parsed.description || (parsed.vendor ? `${expenseCategory} · ${item.vendor || parsed.vendor}` : expenseCategory),
+                  raw_text: finalItemText,
                   user_id: user.id,
                   business_id: linkedBusiness,
                   created_at: new Date().toISOString(),
@@ -1269,6 +1724,7 @@ function Dashboard() {
         );
         setRawText("");
         setAttachment(null);
+        setSelectedFile(null);
         loadExpenses();
         return;
       }
@@ -1283,7 +1739,7 @@ function Dashboard() {
           .insert({
             amount: parsed.amount,
             vendor: parsed.vendor,
-            category: hasGstItems ? "Business" : parsed.category,
+            category: mainCategoryVal,
             currency: detectedCurrency,
             raw_text: finalRawText,
             user_id: user.id,
@@ -1310,7 +1766,7 @@ function Dashboard() {
             .insert({
               amount: parsed.amount,
               vendor: parsed.vendor,
-              category: hasGstItems ? "Business" : parsed.category,
+              category: mainCategoryVal,
               currency: detectedCurrency,
               raw_text: finalRawText,
               user_id: user.id,
@@ -1337,7 +1793,7 @@ function Dashboard() {
             .insert({
               amount: parsed.amount,
               vendor: parsed.vendor,
-              category: hasGstItems ? "Business" : parsed.category,
+              category: mainCategoryVal,
               currency: detectedCurrency,
               raw_text: finalRawText,
               user_id: user.id,
@@ -1371,6 +1827,7 @@ function Dashboard() {
       );
       setRawText("");
       setAttachment(null);
+      setSelectedFile(null);
       loadExpenses();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Processing failed";
@@ -1381,8 +1838,6 @@ function Dashboard() {
       setProcessing(false);
     }
   };
-
-
 
   return (
     <div className="flex min-h-screen w-full bg-background relative overflow-hidden">
@@ -1693,7 +2148,10 @@ function Dashboard() {
                     <span className="text-muted-foreground">{attachment.sizeKb} KB</span>
                     <button
                       type="button"
-                      onClick={() => setAttachment(null)}
+                      onClick={() => {
+                        setAttachment(null);
+                        setSelectedFile(null);
+                      }}
                       className="p-0.5 rounded hover:bg-background"
                       aria-label="Remove attachment"
                     >
